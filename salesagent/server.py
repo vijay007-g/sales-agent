@@ -1,0 +1,571 @@
+"""HTTP server: lead + WhatsApp webhooks, and the owner dashboard."""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import secrets
+import tempfile
+from contextlib import asynccontextmanager
+from html import escape
+
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+from . import db, events, learning, leads, marketing, pipeline, pricing, scheduler, team, visits
+from .config import env, get_settings
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+security = HTTPBasic()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.conn()
+    t = None
+    if env("DISABLE_SCHEDULER") != "1":
+        t = scheduler.start_background(60)
+    yield
+    if t:
+        t.stop.set()
+
+
+app = FastAPI(title="AI Sales Agent", lifespan=lifespan)
+
+
+def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
+    pw = env("DASHBOARD_PASSWORD")
+    if not pw:
+        raise HTTPException(503, "Set DASHBOARD_PASSWORD in .env first")
+    ok = secrets.compare_digest(creds.username, "owner") and secrets.compare_digest(creds.password, pw)
+    if not ok:
+        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
+    return creds.username
+
+
+def _check_secret(given: str | None) -> None:
+    want = env("LEAD_WEBHOOK_SECRET")
+    if not want or not given or not secrets.compare_digest(given, want):
+        raise HTTPException(401, "bad webhook secret")
+
+
+# ============================ webhooks ============================
+
+@app.post("/webhook/lead")
+async def lead_webhook(request: Request, x_webhook_secret: str | None = Header(None)):
+    """Website forms, Meta/Google lead ads (via Zapier/Make), property portals, etc."""
+    _check_secret(x_webhook_secret)
+    data = await request.json()
+    consent = bool(data.pop("consent", True))
+    try:
+        lead, created = leads.upsert_lead(data, consent=consent)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if created and consent:
+        events.dispatch(events.new_lead, lead["id"])
+    return {"ok": True, "lead_id": lead["id"], "created": created}
+
+
+@app.post("/webhook/email")
+async def email_webhook(request: Request, x_webhook_secret: str | None = Header(None)):
+    """Inbound email replies (from your mail provider's inbound-parse webhook): {from, text}."""
+    _check_secret(x_webhook_secret)
+    data = await request.json()
+    events.dispatch(events.inbound_message, None, data["from"], data["text"], "email")
+    return {"ok": True}
+
+
+@app.get("/webhook/whatsapp")
+async def wa_verify(request: Request):
+    p = request.query_params
+    if p.get("hub.mode") == "subscribe" and p.get("hub.verify_token") == env("WHATSAPP_VERIFY_TOKEN"):
+        return PlainTextResponse(p.get("hub.challenge", ""))
+    raise HTTPException(403)
+
+
+@app.post("/webhook/whatsapp")
+async def wa_inbound(request: Request, x_hub_signature_256: str | None = Header(None)):
+    body = await request.body()
+    app_secret = env("WHATSAPP_APP_SECRET")
+    if app_secret:
+        digest = "sha256=" + hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+        if not x_hub_signature_256 or not hmac.compare_digest(digest, x_hub_signature_256):
+            raise HTTPException(401, "bad signature")
+    payload = json.loads(body or b"{}")
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value", {})
+            names = {c.get("wa_id"): c.get("profile", {}).get("name") for c in value.get("contacts", [])}
+            for m in value.get("messages", []):
+                phone = "+" + m.get("from", "")
+                if m.get("type") == "text":
+                    text = m["text"]["body"]
+                elif m.get("type") == "button":
+                    text = m["button"].get("text", "")
+                elif m.get("type") == "interactive":
+                    it = m["interactive"]
+                    text = (it.get("button_reply") or it.get("list_reply") or {}).get("title", "")
+                else:
+                    text = f"[customer sent a {m.get('type')} message]"
+                reply = events.staff_command(phone, text)
+                if reply is not None:
+                    from . import channels
+                    channels.notify_staff(phone, reply)
+                    continue
+                lead = db.find_lead_by_phone(phone)
+                if not lead and names.get(m.get("from")):
+                    leads.upsert_lead({"phone": phone, "name": names[m["from"]], "source": "inbound_whatsapp"})
+                events.dispatch(events.inbound_message, phone, None, text, "whatsapp")
+    return {"ok": True}
+
+
+# ============================ dashboard ============================
+
+CSS = """
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;background:#f6f7f9;color:#1d2330}
+header{background:#1d2330;color:#fff;padding:12px 24px;display:flex;gap:24px;align-items:center}
+header a{color:#cfd6e4;text-decoration:none}header b{font-size:18px}
+main{padding:20px 24px;max-width:1200px;margin:auto}
+.card{background:#fff;border:1px solid #e3e6ec;border-radius:10px;padding:16px;margin-bottom:16px}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:7px 8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+.stages{display:flex;gap:8px;flex-wrap:wrap}.stage{background:#fff;border:1px solid #e3e6ec;border-radius:8px;padding:10px 14px;min-width:90px}
+.stage b{display:block;font-size:22px}.pill{display:inline-block;padding:2px 8px;border-radius:99px;background:#eef1f6;font-size:12px}
+.hot{background:#ffe1dc}.warm{background:#fff2d6}.cold{background:#e1ecff}
+button{background:#2b62e3;color:#fff;border:0;border-radius:6px;padding:6px 12px;cursor:pointer}
+button.red{background:#c9372c}button.grey{background:#6b7385}
+input,textarea,select{padding:6px;border:1px solid #cfd4dd;border-radius:6px;font:inherit}
+.msg{padding:6px 10px;border-radius:8px;margin:4px 0;max-width:75%;white-space:pre-wrap}
+.in{background:#eef1f6}.out{background:#dcf3e4;margin-left:auto}.sys{background:#fff7e0;margin-left:auto;font-size:13px}
+.row{display:flex;flex-direction:column}
+"""
+
+
+def page(title: str, body: str) -> HTMLResponse:
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>{escape(title)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style></head><body>
+<header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
+<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
+<a href="/reports">Reports</a></header>
+<main>{body}</main></body></html>""")
+
+
+def _temp(t: str) -> str:
+    return f'<span class="pill {escape(t or "")}">{escape(t or "-")}</span>'
+
+
+@app.get("/", response_class=HTMLResponse)
+def overview(_: str = Depends(owner_auth)):
+    counts = {r["stage"]: r["n"] for r in db.q("SELECT stage, COUNT(*) n FROM leads GROUP BY stage")}
+    stages = "".join(f'<div class="stage">{s.replace("_", " ")}<b>{counts.get(s, 0)}</b></div>'
+                     for s in pipeline.STAGES)
+    offers = db.q("SELECT o.*, l.name, l.score, l.temperature FROM offers o JOIN leads l ON l.id = o.lead_id "
+                  "WHERE o.status IN ('pending_approval','blocked_floor') ORDER BY o.id")
+    s = get_settings()
+    orows = ""
+    for o in offers:
+        unit = s.unit(o["project"], o["unit_type"]) or {}
+        floor = unit.get("floor_price")
+        orows += f"""<tr><td>#{o['id']}<br>{'<span class="pill hot">below floor</span>' if o['status'] == 'blocked_floor' else ''}</td>
+<td><a href="/leads/{o['lead_id']}">{escape(o['name'] or '')}</a><br>score {o['score']} {_temp(o['temperature'])}</td>
+<td>{escape(o['unit_type'])} · {escape(o['project'])}<br>List {pricing.fmt_money(o['list_price'])}<br>
+<b>Proposed {pricing.fmt_money(o['offered_price'])}</b> ({o['discount_pct']}% off)<br>
+Floor {pricing.fmt_money(floor)} · Customer ask {pricing.fmt_money(o['customer_ask'])}</td>
+<td>Extras: {escape(', '.join(json.loads(o['concessions'] or '[]')) or 'none')}<br>Terms: {escape(o['payment_terms'] or '-')}<br>
+<i>{escape(o['justification'] or '')}</i></td>
+<td><form method="post" action="/offers/{o['id']}/decide">
+<input name="note" placeholder="note to AI (optional)" style="width:180px"><br>
+<input name="counter_price" placeholder="counter price" style="width:120px"><br>
+<button name="decision" value="approve">Approve</button> <button name="decision" value="counter" class="grey">Counter</button>
+<button name="decision" value="reject" class="red">Reject</button></form></td></tr>"""
+    bookings = db.q("SELECT b.*, l.name, o.unit_type, o.project, o.offered_price, o.owner_counter_price FROM bookings b "
+                    "JOIN leads l ON l.id=b.lead_id JOIN offers o ON o.id=b.offer_id WHERE b.status='awaiting_owner'")
+    brows = "".join(f"""<tr><td>B{b['id']}</td><td><a href="/leads/{b['lead_id']}">{escape(b['name'] or '')}</a></td>
+<td>{escape(b['unit_type'])} · {escape(b['project'])} · {pricing.fmt_money(b['owner_counter_price'] or b['offered_price'])}</td>
+<td>Token {pricing.fmt_money(b['token_amount'])}<br>{escape(b['notes'] or '')}</td>
+<td><form method="post" action="/bookings/{b['id']}/decide"><input name="note" placeholder="note">
+<button name="decision" value="confirm">Confirm booking</button> <button name="decision" value="hold" class="grey">Hold</button></form></td></tr>"""
+                    for b in bookings)
+    drafts = db.q("SELECT d.*, l.name FROM drafts d JOIN leads l ON l.id = d.lead_id WHERE d.status = 'pending' "
+                  "ORDER BY d.id")
+    drows = "".join(f"""<tr><td>D{d['id']}<br>{escape(d['rm_name'] or '')}</td><td><a href="/leads/{d['lead_id']}">{escape(d['name'] or '')}</a></td>
+<td><form method="post" action="/drafts/{d['id']}"><textarea name="text" rows="3" style="width:100%">{escape(d['text'])}</textarea>
+<button name="action" value="send">Send</button> <button name="action" value="drop" class="grey">Drop</button></form></td></tr>"""
+                    for d in drafts)
+    pays = db.q("SELECT b.*, l.name, l.phone FROM bookings b JOIN leads l ON l.id = b.lead_id WHERE b.status = 'confirmed'")
+    prows = "".join(f"""<tr><td>B{b['id']}</td><td><a href="/leads/{b['lead_id']}">{escape(b['name'] or '')}</a> {escape(b['phone'] or '')}</td>
+<td>Advance {pricing.fmt_money(b['token_amount'])}</td><td><form method="post" action="/bookings/{b['id']}/paid">
+<input name="amount" placeholder="amount received" style="width:130px"> <input name="ref" placeholder="UTR / receipt no">
+<button>Mark advance received</button></form></td></tr>""" for b in pays)
+    human = db.q("SELECT id, name, stage, phone FROM leads WHERE needs_human = 1")
+    hrows = "".join(f'<tr><td><a href="/leads/{h["id"]}">#{h["id"]} {escape(h["name"] or "")}</a></td><td>{escape(h["phone"] or "")}</td>'
+                    f'<td>{h["stage"]}</td><td><form method="post" action="/leads/{h["id"]}/resume"><input name="note" placeholder="what happened">'
+                    f'<button>Hand back to AI</button></form></td></tr>' for h in human)
+    body = f"""<div class="card"><h3>Pipeline</h3><div class="stages">{stages}</div></div>
+<div class="card"><h3>Price approvals waiting ({len(offers)})</h3><table>{orows or '<tr><td>Nothing waiting.</td></tr>'}</table></div>
+<div class="card"><h3>Bookings to confirm ({len(bookings)})</h3><table>{brows or '<tr><td>Nothing waiting.</td></tr>'}</table></div>
+<div class="card"><h3>Advance payments awaited ({len(pays)})</h3><table>{prows or '<tr><td>None.</td></tr>'}</table>
+<small>Mark received only after checking the builder's bank account.</small></div>
+<div class="card"><h3>Message drafts waiting for salespeople ({len(drafts)})</h3><table>{drows or '<tr><td>None.</td></tr>'}</table></div>
+<div class="card"><h3>Leads needing you ({len(human)})</h3><table>{hrows or '<tr><td>None.</td></tr>'}</table></div>"""
+    return page("Overview", body)
+
+
+@app.post("/offers/{offer_id}/decide")
+def decide_offer(offer_id: int, decision: str = Form(...), note: str = Form(""), counter_price: str = Form(""),
+                 _: str = Depends(owner_auth)):
+    price = events.parse_amount(counter_price) if counter_price else None
+    if decision == "counter" and not price:
+        raise HTTPException(400, "Enter a counter price")
+    events.owner_offer_decision(offer_id, decision, price, note)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/bookings/{booking_id}/decide")
+def decide_booking(booking_id: int, decision: str = Form(...), note: str = Form(""), _: str = Depends(owner_auth)):
+    events.owner_booking_decision(booking_id, decision == "confirm", note)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/leads", response_class=HTMLResponse)
+def lead_list(stage: str = "", _: str = Depends(owner_auth)):
+    rows = db.q("SELECT * FROM leads " + ("WHERE stage = ? " if stage else "") +
+                "ORDER BY score DESC, id DESC LIMIT 500", (stage,) if stage else ())
+    trs = "".join(f"""<tr><td><a href="/leads/{r['id']}">#{r['id']} {escape(r['name'] or '(no name)')}</a></td>
+<td>{escape(r['phone'] or r['email'] or '')}</td><td>{escape(r['source'] or '')}</td><td>{escape(r['rm_name'] or '')}</td><td>{r['stage']}</td><td>{r['score']}</td>
+<td>{_temp(r['temperature'])}</td><td>{escape(r['unit_type'] or '')} {pricing.fmt_money(r['budget_max'])}</td>
+<td>{escape((r['next_followup_at'] or '')[:16])}</td></tr>""" for r in rows)
+    opts = "".join(f'<option {"selected" if s == stage else ""}>{s}</option>' for s in pipeline.STAGES)
+    body = f"""<div class="card"><form>Stage <select name="stage"><option value="">all</option>{opts}</select> <button>Filter</button></form></div>
+<div class="card"><h3>Add a lead (walk-in, call, referral)</h3><form method="post" action="/leads/new">
+<input name="name" placeholder="Name" required> <input name="phone" placeholder="Phone" required> <input name="email" placeholder="Email">
+<select name="source"><option>walk_in</option><option>referral</option><option>website</option><option>portal</option><option>meta_ads</option><option>google_ads</option><option>other</option></select>
+<input name="unit_type" placeholder="2BHK / 3BHK"> <input name="budget_max" placeholder="Budget"> <input name="notes" placeholder="Notes">
+<label><input type="checkbox" name="consent" checked> Customer agreed to be contacted</label> <button>Add & let AI contact</button></form>
+<form method="post" action="/import" enctype="multipart/form-data" style="margin-top:10px">Import portal/ads CSV:
+<input type="file" name="file" accept=".csv" required> <input name="source" value="portal"> <button class="grey">Import</button></form></div>
+<div class="card"><table><tr><th>Lead</th><th>Contact</th><th>Source</th><th>Sales</th><th>Stage</th><th>Score</th><th>Temp</th><th>Wants</th><th>Next follow-up</th></tr>{trs}</table></div>"""
+    return page("Leads", body)
+
+
+@app.post("/leads/new")
+def add_lead(name: str = Form(...), phone: str = Form(...), email: str = Form(""), source: str = Form("walk_in"),
+             unit_type: str = Form(""), budget_max: str = Form(""), notes: str = Form(""), consent: str = Form(""),
+             _: str = Depends(owner_auth)):
+    lead, created = leads.upsert_lead({"name": name, "phone": phone, "email": email, "source": source,
+                                       "unit_type": unit_type, "budget_max": events.parse_amount(budget_max)
+                                       if budget_max else None}, consent=bool(consent))
+    if notes:
+        db.update("leads", lead["id"], {"memory": f"Owner note: {notes}"})
+    if created and consent:
+        events.dispatch(events.new_lead, lead["id"])
+    return RedirectResponse(f"/leads/{lead['id']}", status_code=303)
+
+
+@app.post("/import")
+async def import_leads(file: UploadFile = File(...), source: str = Form("csv_import"), _: str = Depends(owner_auth)):
+    with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+        f.write(await file.read())
+        path = f.name
+    res = leads.import_csv(path, source=source)
+    for lead_id in res["new_ids"]:
+        events.dispatch(events.new_lead, lead_id)
+    return page("Import", f'<div class="card">New: {res["created"]}, merged with existing: {res["merged"]}, '
+                          f'skipped (no phone/email): {res["failed"]}. The AI is contacting the new leads now.'
+                          f'</div><a href="/leads">Back</a>')
+
+
+@app.get("/leads/{lead_id}", response_class=HTMLResponse)
+def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
+    lead = db.get_lead(lead_id)
+    if not lead:
+        raise HTTPException(404)
+    msgs = db.q("SELECT * FROM interactions WHERE lead_id = ? ORDER BY id", (lead_id,))
+    chat = "".join(
+        f'<div class="msg {"in" if m["direction"] == "in" else "sys" if m["author"] != "agent" else "out"}">'
+        f'<small>{escape(m["created_at"][:16])} · {escape(m["author"])} · {escape(m["channel"])}</small><br>'
+        f'{escape(m["content"])}</div>' for m in msgs)
+    vis = db.q("SELECT * FROM site_visits WHERE lead_id = ? ORDER BY id", (lead_id,))
+    vrows = "".join(f"<tr><td>#{v['id']}</td><td>{escape(v['scheduled_at'])}</td><td>{escape(v['site_person'])}</td>"
+                    f"<td>{v['status']}</td><td>{escape(v['interest_level'] or '')} {escape(v['feedback'] or '')}</td></tr>"
+                    for v in vis)
+    offers = db.q("SELECT * FROM offers WHERE lead_id = ? ORDER BY id", (lead_id,))
+    orows = "".join(f"<tr><td>#{o['id']}</td><td>{escape(o['unit_type'])}</td><td>{pricing.fmt_money(o['offered_price'])}"
+                    f" ({o['discount_pct']}%)</td><td>{o['status']}</td><td>{pricing.fmt_money(o['owner_counter_price'])}"
+                    f" {escape(o['owner_note'] or '')}</td></tr>" for o in offers)
+    log = db.q("SELECT * FROM audit WHERE lead_id = ? ORDER BY id DESC LIMIT 40", (lead_id,))
+    lrows = "".join(f"<tr><td>{escape(a['created_at'][5:16])}</td><td>{escape(a['actor'])}</td><td>{escape(a['action'])}</td>"
+                    f"<td><small>{escape((a['detail'] or '')[:300])}</small></td></tr>" for a in log)
+    strat = json.loads(lead["strategy"]) if lead.get("strategy") else None
+    strat_html = "".join(f"<p><b>{escape(k.replace('_', ' '))}:</b> {escape(' | '.join(v) if isinstance(v, list) else str(v))}</p>"
+                         for k, v in strat.items()) if strat else "No strategy yet (written after the site visit)."
+    calls = db.q("SELECT * FROM call_tasks WHERE lead_id = ? ORDER BY id DESC", (lead_id,))
+    crows = "".join(f"<tr><td>C{c['id']}</td><td>{escape(c['due_at'][5:16])}</td><td>{escape(c['purpose'])}</td>"
+                    f"<td>{c['status']} {escape(c['outcome'] or '')}</td><td><small>{escape(c['notes'] or '')}</small></td></tr>"
+                    for c in calls)
+    reports = "".join(f"<details><summary>Visit #{v['id']} report</summary><table>" + "".join(
+        f"<tr><th>{escape(lbl)}</th><td>{escape(str(json.loads(v['form_data']).get(f, '')))}</td></tr>"
+        for f, lbl, _, _ in visits.VISIT_FORM) + "</table></details>" for v in vis if v.get("form_data"))
+    prof = "".join(f"<tr><th>{k}</th><td>{escape(str(lead[k]))}</td></tr>" for k in (
+        "phone", "email", "rm_name", "source", "campaign", "stage", "score", "temperature", "project_interest", "unit_type",
+        "budget_min", "budget_max", "timeline", "purpose", "financing", "language", "next_followup_at",
+        "followup_purpose", "opted_out", "needs_human") if lead[k] not in (None, ""))
+    pause = (f'<form method="post" action="/leads/{lead_id}/resume"><input name="note" placeholder="note for AI"><button>Hand back to AI</button></form>'
+             if lead["needs_human"] else
+             f'<form method="post" action="/leads/{lead_id}/pause"><button class="grey">Take over (pause AI)</button></form>')
+    body = f"""<h2>#{lead['id']} {escape(lead['name'] or '')} {_temp(lead['temperature'])}</h2>
+<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px"><div>
+<div class="card"><table>{prof}</table>{pause}</div>
+<div class="card"><h4>Conversion strategy</h4><div style="font-size:14px">{strat_html}</div></div>
+<div class="card"><h4>Calls</h4><table>{crows or '<tr><td>none</td></tr>'}</table></div>
+<div class="card"><h4>AI's notes</h4><div style="white-space:pre-wrap;font-size:14px">{escape(lead['memory'] or '-')}</div></div>
+<div class="card"><h4>Site / office visits</h4><table>{vrows or '<tr><td>none</td></tr>'}</table>{reports}</div>
+<div class="card"><h4>Offers</h4><table>{orows or '<tr><td>none</td></tr>'}</table></div></div>
+<div><div class="card"><h4>Conversation</h4><div class="row">{chat or 'No messages yet.'}</div>
+<form method="post" action="/leads/{lead_id}/send" style="margin-top:10px"><textarea name="text" rows="2" style="width:100%" placeholder="Send a message yourself (as the business)"></textarea><button>Send</button></form></div>
+<div class="card"><h4>Activity log</h4><table>{lrows}</table></div></div></div>"""
+    return page(lead["name"] or "Lead", body)
+
+
+@app.post("/leads/{lead_id}/pause")
+def pause(lead_id: int, _: str = Depends(owner_auth)):
+    db.update("leads", lead_id, {"needs_human": 1})
+    db.audit(lead_id, "owner", "pause", "")
+    return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+
+@app.post("/leads/{lead_id}/resume")
+def resume(lead_id: int, note: str = Form(""), _: str = Depends(owner_auth)):
+    db.update("leads", lead_id, {"needs_human": 0})
+    db.audit(lead_id, "owner", "resume", note)
+    events.dispatch(events._run, lead_id, "human_resumed",
+                    f"The owner handed this lead back to you. Owner note: {note or '-'}. Continue from here.")
+    return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+
+@app.post("/leads/{lead_id}/send")
+def owner_send(lead_id: int, text: str = Form(...), _: str = Depends(owner_auth)):
+    lead = db.get_lead(lead_id)
+    if lead and not lead["opted_out"]:
+        team.deliver(lead_id, text, "whatsapp", author="owner")
+    return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+
+@app.get("/visits", response_class=HTMLResponse)
+def visit_list(_: str = Depends(owner_auth)):
+    rows = db.q("SELECT v.*, l.name, l.phone FROM site_visits v JOIN leads l ON l.id = v.lead_id "
+                "ORDER BY v.scheduled_at DESC LIMIT 200")
+    trs = "".join(f"""<tr><td>#{v['id']}</td><td>{escape(v['scheduled_at'])}</td><td><a href="/leads/{v['lead_id']}">{escape(v['name'] or '')}</a> {escape(v['phone'] or '')}</td>
+<td>{escape(v['project'])}</td><td>{escape(v['site_person'])}</td><td>{v['status']}</td><td>{
+        f'<a href="/f/visit/{v["form_token"]}">Fill visit report</a>' if v['status'] == 'scheduled' and v['kind'] == 'site'
+        else escape((v['interest_level'] or '') + ' ' + (v['feedback'] or ''))}</td></tr>"""
+                  for v in rows)
+    return page("Visits", f'<div class="card"><table><tr><th></th><th>When</th><th>Customer</th><th>Project</th>'
+                          f'<th>Site person</th><th>Status</th><th>Outcome</th></tr>{trs}</table></div>')
+
+
+
+
+@app.get("/campaigns", response_class=HTMLResponse)
+def campaigns(_: str = Depends(owner_auth)):
+    rows = db.q("SELECT * FROM campaigns ORDER BY id DESC")
+    cards = ""
+    for c in rows:
+        d = json.loads(c["content"])
+        ads = "".join(f"<li><span class='pill'>{escape(a.get('tracking_code', ''))}</span> <b>{escape(a['headline'])}</b> — {escape(a['primary_text'])} <i>[{escape(a['call_to_action'])}]</i>"
+                      f"<br><small>Creative: {escape(a['creative_idea'])}</small></li>" for a in d.get("ad_variants", []))
+        personas = "".join(f"<li><b>{escape(p['persona'])}</b>: {escape(p['why_they_buy'])}<br><small>{escape(p['targeting'])}</small></li>"
+                           for p in d.get("target_personas", []))
+        approve = (f'<form method="post" action="/campaigns/{c["id"]}/approve"><button>Approve for publishing</button></form>'
+                   if c["status"] == "draft" else "")
+        cards += f"""<div class="card"><h3>{escape(c['name'])} <span class="pill">{c['status']}</span> <span class="pill">{escape(c['channel'])}</span></h3>
+<h4>Who to target</h4><ul>{personas}</ul><h4>Ads</h4><ul>{ads}</ul>
+<h4>Lead form</h4><ul>{''.join(f'<li>{escape(q)}</li>' for q in d.get('lead_form_questions', []))}</ul>
+<h4>WhatsApp template</h4><pre style="white-space:pre-wrap">{escape(d.get('whatsapp_template', ''))}</pre>
+<h4>Social posts</h4><ul>{''.join(f'<li style="white-space:pre-wrap">{escape(p)}</li>' for p in d.get('social_posts', []))}</ul>
+<h4>Big creative ideas</h4><ul>{''.join(f"<li><b>{escape(i['idea'])}</b> — {escape(i['how_to_execute'])}<br><small>{escape(i['why_it_fits_our_buyers'])}</small></li>" for i in d.get('big_creative_ideas', []))}</ul>
+<h4>Referral offer</h4><p>{escape(d.get('referral_offer_idea', ''))}</p>
+<h4>2-week content calendar</h4><ol>{''.join(f'<li>{escape(x)}</li>' for x in d.get('two_week_content_calendar', []))}</ol>
+<h4>Budget</h4><p>{escape(d.get('budget_split_advice', ''))}</p><h4>Compliance</h4><p>{escape(d.get('compliance_notes', ''))}</p>{approve}</div>"""
+    projects = "".join(f"<option>{escape(p['name'])}</option>" for p in get_settings().projects)
+    form = f"""<div class="card"><h3>Create a lead-generation campaign</h3><form method="post" action="/campaigns/new">
+<select name="project">{projects}</select> <select name="channel"><option>Meta (Facebook/Instagram) lead ads</option>
+<option>Google search ads</option><option>Property portals</option><option>WhatsApp broadcast (opted-in list)</option><option>Instagram organic</option></select>
+<input name="budget" placeholder="Monthly budget e.g. 1.5L"> <input name="brief" placeholder="Anything specific? e.g. target NRIs, Diwali offer" style="width:320px">
+<button>Generate</button></form><small>Takes ~1 minute. Saved as a draft for your approval.</small></div>"""
+    return page("Campaigns", form + cards)
+
+
+@app.post("/campaigns/new")
+def new_campaign(project: str = Form(...), channel: str = Form(...), budget: str = Form(""), brief: str = Form(""),
+                 _: str = Depends(owner_auth)):
+    marketing.generate_campaign(project, channel, brief, budget)
+    return RedirectResponse("/campaigns", status_code=303)
+
+
+@app.post("/campaigns/{cid}/approve")
+def approve_campaign(cid: int, _: str = Depends(owner_auth)):
+    db.update("campaigns", cid, {"status": "approved"})
+    return RedirectResponse("/campaigns", status_code=303)
+
+
+@app.get("/reports", response_class=HTMLResponse)
+def reports(_: str = Depends(owner_auth)):
+    def table(rep):
+        return "".join(f"<tr><td>{escape(k)}</td><td>{v['total']}</td><td>{v['visits']} ({v['visit_rate']}%)</td>"
+                       f"<td>{v['booked']} ({v['booking_rate']}%)</td></tr>" for k, v in sorted(rep.items()))
+    trs = table(marketing.funnel_report("source"))
+    ctrs = table(marketing.funnel_report("campaign"))
+    u = db.q1("SELECT COUNT(*) runs, SUM(input_tokens) i, SUM(output_tokens) o, SUM(cache_read) cr, "
+              "SUM(cache_write) cw FROM usage") or {}
+    cost = ((u.get("i") or 0) * 4 + (u.get("o") or 0) * 20 + (u.get("cr") or 0) * 0.2 + (u.get("cw") or 0) * 5) / 1e6
+    return page("Reports", f"""<div class="card"><h3>Where good leads come from</h3><table><tr><th>Source</th><th>Leads</th>
+<th>Reached site visit</th><th>Booked</th></tr>{trs}</table></div>
+<div class="card"><h3>By campaign / ad variant</h3><table><tr><th>Campaign code</th><th>Leads</th>
+<th>Reached site visit</th><th>Booked</th></tr>{ctrs}</table></div>
+<div class="card"><h3>AI usage</h3>Model calls: {u.get('runs') or 0} · approx. cost ${cost:.2f} (estimate at list prices)</div>""")
+
+
+@app.post("/drafts/{draft_id}")
+def draft_action(draft_id: int, action: str = Form(...), text: str = Form(""), _: str = Depends(owner_auth)):
+    if action == "drop":
+        team.drop_draft(draft_id)
+    else:
+        d = db.q1("SELECT text FROM drafts WHERE id = ?", (draft_id,))
+        edited = text.strip() if d and text.strip() and text.strip() != d["text"].strip() else None
+        team.approve_draft(draft_id, edited, actor="owner")
+    return RedirectResponse("/", status_code=303)
+
+
+@app.post("/bookings/{booking_id}/paid")
+def mark_paid(booking_id: int, amount: str = Form(""), ref: str = Form(""), _: str = Depends(owner_auth)):
+    events.payment_received(booking_id, events.parse_amount(amount) if amount else None, ref)
+    return RedirectResponse("/", status_code=303)
+
+
+@app.get("/calls", response_class=HTMLResponse)
+def call_list(_: str = Depends(owner_auth)):
+    rows = db.q("SELECT c.*, l.name, l.phone, l.stage FROM call_tasks c JOIN leads l ON l.id = c.lead_id "
+                "WHERE c.status IN ('open','attempted') ORDER BY c.due_at")
+    trs = "".join(f"""<tr><td>C{c['id']}<br>{escape(c['rm_name'] or '')}</td><td>{escape(c['due_at'][5:16])}</td>
+<td><a href="/leads/{c['lead_id']}">{escape(c['name'] or '')}</a><br>{escape(c['phone'] or '')}<br>{c['stage']}</td>
+<td><b>{escape(c['purpose'])}</b><div style="white-space:pre-wrap;font-size:13px">{escape(c['brief'] or '')}</div></td>
+<td><a href="/f/call/{c['form_token']}">Log call</a></td></tr>""" for c in rows)
+    return page("Calls", f'<div class="card"><h3>Calls to make ({len(rows)})</h3><table><tr><th></th><th>Due</th>'
+                         f'<th>Customer</th><th>Brief</th><th></th></tr>{trs}</table></div>')
+
+
+@app.get("/insights", response_class=HTMLResponse)
+def insights_page(_: str = Depends(owner_auth)):
+    row = db.q1("SELECT * FROM insights WHERE kind = 'playbook' ORDER BY id DESC LIMIT 1")
+    btn = ('<form method="post" action="/insights/run"><button>Learn from recent leads now</button> '
+           '<small>Runs automatically every week. Takes 1-2 minutes.</small></form>')
+    if not row:
+        return page("Learning", f'<div class="card"><h3>Learned playbook</h3><p>Nothing learned yet: needs a few '
+                                f'won or lost leads.</p>{btn}</div>')
+    d = json.loads(row["content"])
+
+    def lst(items):
+        return "<ul>" + "".join(f"<li>{escape(i if isinstance(i, str) else ' — '.join(map(str, i.values())))}</li>"
+                                for i in items) + "</ul>"
+    body = f"""<div class="card"><h3>Learned playbook <small>({escape(row['created_at'][:10])}, from {row['based_on']} closed leads)</small></h3>
+<p>{escape(d['summary'])}</p>{btn}</div>
+<div class="card"><h4>What works in messages</h4>{lst(d['what_works_in_messages'])}<h4>What works on calls</h4>{lst(d['what_works_on_calls'])}
+<h4>Objections and best answers</h4>{lst(d['objection_playbook'])}<h4>Who converts</h4>{lst(d['best_converting_profiles'])}
+<h4>Lead sources</h4>{lst(d['lead_source_verdicts'])}<h4>Follow-up</h4>{lst(d['follow_up_insights'])}
+<h4>Tone (from salespeople's edits)</h4>{lst(d['rm_tone_preferences'])}<h4>Stop doing</h4>{lst(d['things_to_stop'])}</div>
+<div class="card"><h4>New campaign ideas</h4>{lst(d['creative_campaign_ideas'])}<h4>Experiments to run</h4>{lst(d['experiments_to_run'])}</div>"""
+    return page("Learning", body)
+
+
+@app.post("/insights/run")
+def insights_run(_: str = Depends(owner_auth)):
+    events.dispatch(learning.learn, True)
+    return page("Learning", '<div class="card">Learning started. Refresh the Learning page in a couple of minutes.'
+                            '</div><a href="/insights">Back</a>')
+
+
+# ============================ no-login forms for the team (links sent on WhatsApp) ============================
+
+def _form_page(title: str, body: str) -> HTMLResponse:
+    return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>{escape(title)}</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}
+label{{display:block;margin:12px 0 4px;font-weight:600}}input,textarea,select{{width:100%;box-sizing:border-box}}
+button{{margin-top:16px;width:100%;padding:12px;font-size:16px}}</style></head><body><main style="max-width:560px">
+<div class="card">{body}</div></main></body></html>""")
+
+
+@app.get("/f/visit/{token}", response_class=HTMLResponse)
+def visit_form(token: str):
+    v = db.q1("SELECT * FROM site_visits WHERE form_token = ?", (token,))
+    if not v:
+        raise HTTPException(404)
+    lead = db.get_lead(v["lead_id"])
+    if v["form_data"]:
+        return _form_page("Done", "<h3>Thanks — this report was already submitted.</h3>")
+    fields = ""
+    for f, label, typ, opts in visits.VISIT_FORM:
+        if typ == "choice":
+            ctrl = f'<select name="{f}"><option></option>' + "".join(f"<option>{o}</option>" for o in opts) + "</select>"
+        elif typ == "textarea":
+            ctrl = f'<textarea name="{f}" rows="3"></textarea>'
+        else:
+            ctrl = f'<input name="{f}">'
+        fields += f"<label>{escape(label)}</label>{ctrl}"
+    return _form_page("Visit report", f"""<h3>Site visit report #{v['id']}</h3>
+<p>{escape(lead['name'] or '')} · {escape(v['scheduled_at'][:16].replace('T', ' '))} · {escape(v['project'])}</p>
+<form method="post">{fields}<button>Submit report</button></form>""")
+
+
+@app.post("/f/visit/{token}", response_class=HTMLResponse)
+async def visit_form_submit(token: str, request: Request):
+    v = db.q1("SELECT * FROM site_visits WHERE form_token = ?", (token,))
+    if not v:
+        raise HTTPException(404)
+    if v["form_data"]:
+        return _form_page("Done", "<h3>Already submitted.</h3>")
+    form = await request.form()
+    data = {f: str(form.get(f, "")).strip() for f, _, _, _ in visits.VISIT_FORM}
+    events.dispatch(events.visit_outcome, v["id"], data)
+    return _form_page("Thanks", "<h3>Thank you! Report saved.</h3><p>The sales team will follow up with the customer.</p>")
+
+
+@app.get("/f/call/{token}", response_class=HTMLResponse)
+def call_form(token: str):
+    t = db.q1("SELECT * FROM call_tasks WHERE form_token = ?", (token,))
+    if not t:
+        raise HTTPException(404)
+    lead = db.get_lead(t["lead_id"])
+    outcomes = "".join(f"<option>{o}</option>" for o in team.CALL_OUTCOMES)
+    return _form_page("Call log", f"""<h3>Call C{t['id']} — {escape(lead['name'] or '')}</h3>
+<p><a href="tel:{escape(lead['phone'] or '')}">📞 {escape(lead['phone'] or '')}</a> · {escape(t['purpose'])}</p>
+<details open><summary>Brief</summary><div style="white-space:pre-wrap;font-size:14px">{escape(t['brief'] or '')}</div></details>
+<form method="post"><label>Outcome</label><select name="outcome">{outcomes}</select>
+<label>What did you discuss?</label><textarea name="summary" rows="4"></textarea>
+<label>Customer's mood / interest</label><select name="mood"><option></option><option>hot</option><option>warm</option><option>cold</option><option>annoyed</option></select>
+<label>New information (budget, family, loan, requirements)</label><textarea name="new_info" rows="2"></textarea>
+<label>Objections raised</label><textarea name="objections" rows="2"></textarea>
+<label>Next step agreed</label><input name="next_step">
+<label>Call back / meet when?</label><input name="callback_time" placeholder="e.g. Saturday 11am">
+<button>Save call</button></form>""")
+
+
+@app.post("/f/call/{token}", response_class=HTMLResponse)
+async def call_form_submit(token: str, request: Request):
+    t = db.q1("SELECT * FROM call_tasks WHERE form_token = ?", (token,))
+    if not t:
+        raise HTTPException(404)
+    form = await request.form()
+    outcome = str(form.get("outcome", "spoke"))
+    if outcome not in team.CALL_OUTCOMES:
+        outcome = "spoke"
+    data = {k: str(form.get(k, "")).strip() for k in ("summary", "mood", "new_info", "objections", "next_step",
+                                                       "callback_time")}
+    events.dispatch(events.call_logged, t["id"], outcome, data)
+    return _form_page("Thanks", "<h3>Saved.</h3><p>The follow-up WhatsApp will go out in your name.</p>")
+
+
+@app.get("/health")
+def health():
+    return {"ok": True}

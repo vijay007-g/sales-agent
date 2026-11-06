@@ -1,0 +1,124 @@
+# AI + Human Sales System (real estate): lead to booking
+
+An AI sales assistant works alongside your human sales team:
+
+- **Salespeople (relationship managers)** phone the customer at every stage.
+- **The AI** writes the WhatsApp messages in that salesperson's name, from their number. It also plans every
+  call with a brief, analyses site visits, builds a conversion strategy for each lead, and makes sure no lead
+  goes quiet.
+- **The site person** shows the site and fills a 2-minute visit report on their phone.
+- **Management** approves every price change, confirms bookings, and records the advance payment.
+- **The system learns** every week from won and lost deals and feeds that back into messages, calls and new
+  ad campaigns.
+
+```
+Lead sources ─► NEW ─► CONTACTED ─► QUALIFIED ─► VISIT SCHEDULED ─► VISIT DONE ─► NEGOTIATION ─► BOOKING PENDING ─► PAYMENT PENDING ─► BOOKED
+(ads, portals,  📞 intro   📞 needs      📞 confirm      Site person:     AI: strategy    every price     Management:       AI: official bank      Management:
+ website,       call +     + visit       visit          visit report     📞 post-visit   needs approval  CONFIRM B<n>      details or office      PAID B<n>
+ walk-ins,      message    invitation                   form             call            📞 offer call                     visit 📞 payment call  (money received)
+ referrals)
+                └─ quiet leads: calls + messages alternate on a fixed cadence ─► NURTURE ─► LOST (reason recorded)
+```
+
+## AI only, or AI + people?
+**AI + people.** A flat is one of the biggest purchases a family makes. In India, buyers expect to speak to a
+person, decisions are made by several family members, and price talks happen on the phone. Message-only
+selling works for capturing and qualifying leads, reminders and follow-up discipline, where it is excellent.
+Trust, objections and closing need a voice. So here:
+
+| AI does | People do |
+|---|---|
+| Instant reply to every lead, 24×7 | Intro call within 10 minutes |
+| Writes messages in the salesperson's voice, from their number | Every call at every stage (the AI writes a brief for each) |
+| Remembers every detail; never forgets a follow-up | Site visit (site person) |
+| Turns the visit report into a conversion strategy | Price decisions, booking confirmation, payment check (management) |
+| Learns what works, writes campaigns | Approves campaigns and AI drafts (review mode) |
+
+The customer only ever deals with **one person**: their salesperson calls them, and messages come from that
+same salesperson's WhatsApp, continuing what was said on the call ("as we discussed…"). If a customer asks
+whether they're talking to a bot, the AI answers honestly: the salesperson uses an assistant for messages and is
+personally handling their enquiry. It then sets up a call.
+
+## Stage by stage
+| Stage | What happens |
+|---|---|
+| **Creating leads** | `Campaigns` writes Meta/Google ads, lead forms, WhatsApp templates, social posts, a 2-week content calendar, referral offers and bigger creative ideas (corporate tie-ups, NRI webinars, events…). It draws on the learned playbook and on which ad variants actually produced bookings. Each ad variant gets a tracking code (`C3-V2`); pass it as `campaign` in the lead webhook, and the Reports page shows which variant produced visits and bookings. Drafts wait for your approval. |
+| **Capturing leads** | `POST /webhook/lead` (website, ad platforms via Zapier/Make, portals), CSV import, or walk-ins added on the dashboard. Duplicates merged; each lead is scored 0–100 and assigned to the salesperson with the lightest load. |
+| **First contact** | A short, natural WhatsApp from the salesperson's number within seconds, plus a 📞 intro call task due in 10 minutes. The task arrives on the salesperson's WhatsApp with a brief and a one-tap call-log form. |
+| **Calls** | Every call task has a 30-second brief: context, the one goal of the call, talking points, likely objections and suggested answers. After the call the salesperson taps the form link (or replies `CALLED C12 <notes>`). The AI updates the lead and sends a WhatsApp that continues the call. Missed calls get a "tried calling you" message and a retry at a different time. Overdue calls are chased. |
+| **Site visit** | The AI offers two specific slots, books the site person and sends them the customer details plus the **visit report form** link (attended, who came, decision maker, units shown, liked, concerns, specific requirements, budget, financing, timeline, competitors, price reaction, interest, next step). Reminders go to the customer 24h/2h before, and the site person is nudged until the report is in. |
+| **After the visit** | The AI analyses the report together with all calls and messages, and writes a **conversion strategy**: motivators, each objection with an answer, recommended unit, who decides, price plan (requests only, which need approval), dated next actions, and the main risk. It's sent to the salesperson and followed in every later message and call brief. |
+| **Follow-ups** | Regular and consistent per stage. Every touch adds something new and pushes one step toward booking. Calls and messages alternate. After 5 unanswered attempts the lead moves to a 2-weekly nurture. |
+| **Negotiation** | **Every** discount or extra goes to management **before** the customer hears it (`APPROVE` / `COUNTER` / `REJECT`). **Unit area is fixed**: area concessions are blocked in code. Floor prices are never visible to the AI. Approved prices are presented on a call first, then confirmed in writing. |
+| **Booking** | Customer agrees → management `CONFIRM B5` → the AI sends the **official company bank details** (fixed text from config, never typed by the AI) and offers an **office visit** slot for paying in person. Payment call planned. When the customer says "paid", management is alerted to check the bank. Only `PAID B5 2L UTR123` marks the flat **booked**. |
+| **Learning** | Weekly (or on demand) the system studies won vs lost leads: conversations, call notes, visit reports, offers, how salespeople rewrote AI drafts, and conversion by source and ad variant. It produces a playbook (what works in messages and on calls, the best answer to each objection, who converts, what to stop, new campaign ideas, experiments). The playbook is used in every message, call brief and campaign. |
+
+## WhatsApp commands
+```
+Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
+             PAID B3 2L UTR12345 | PAUSE 15 | RESUME 15 <note> | STATUS | LEAD 15
+Salesperson: TASKS | CALLED C12 <what happened> | NOANSWER C12 | SEND D4 | EDIT D4 <your text> | DROP D4
+Site person: TODAY | VISITED 9 hot <notes> | NOSHOW 9      (or the full visit-report form link)
+```
+In **review mode** (`message_mode: review`, recommended for the first weeks), every AI message comes to the
+salesperson as a draft: `SEND D4`, or `EDIT D4 <better text>`. Edits are learned from. Switch to `auto` once
+you trust the tone.
+
+## Setup
+```bash
+cd sales-agent
+pip install -r requirements.txt
+cp config.example.yaml config.yaml   # projects, prices, floors, salespeople, site persons, bank details
+cp .env.example .env                 # Claude API key, dashboard password, WhatsApp keys, PUBLIC_BASE_URL
+```
+Try it in the terminal first. It needs only `ANTHROPIC_API_KEY`, and nothing is really sent:
+```bash
+python -m salesagent.cli simulate
+```
+In the simulator you type as the customer, and play the others with `/rm CALLED C1 …`, `/site VISITED 1 hot …`
+and `/owner APPROVE 1`.
+
+Run it for real:
+```bash
+python -m salesagent.cli serve
+```
+The dashboard is at `PUBLIC_BASE_URL` (user `owner`).
+1. **WhatsApp:** set up the WhatsApp Business Cloud API. Add one phone number per salesperson and put each
+   number's ID in `sales_team[].whatsapp_phone_number_id`, so the customer sees the same person who calls them.
+   Set the webhook to `<PUBLIC_BASE_URL>/webhook/whatsapp`. Create one approved template with a `{{1}}` body
+   variable (`WHATSAPP_TEMPLATE_NAME`); it is used for follow-ups sent more than 24h after the customer's last
+   message.
+2. **Lead sources:** point them at `POST /webhook/lead` with header `X-Webhook-Secret` and a JSON body such as
+   `{"name","phone","email","source","campaign":"C3-V2","budget_max","unit_type","timeline"}`.
+3. **Hosting:** any small server with HTTPS. Back up `data/`.
+
+Other commands: `campaign "<project>" "<channel>" --budget 1.5L`, `import leads.csv --source portal --contact`,
+`learn`, `digest`, `tick`.
+
+## Safety rails (enforced in code)
+- The AI never sees floor prices. Every discount or extra needs management approval first, and below-floor
+  asks are blocked.
+- Unit area can never be offered or changed.
+- Only the site person can mark a visit done. Only management can confirm a booking or mark the advance as
+  received.
+- Payment details are fixed text from config, sent only after management confirms. Customers are told to
+  verify by calling the office and never to pay into a personal account.
+- "STOP" opts a customer out instantly, without the AI. Max 3 messages per turn. No proactive messages in
+  quiet hours.
+- Complaints, anger, legal, refund or RERA questions hand the lead to a person.
+- Every action is in each lead's activity log.
+
+## Model and cost
+Uses Claude (`claude-opus-5-5`) via the Anthropic API. Routine replies run at medium effort; post-visit
+strategy and negotiation run at high effort. Prompts are cached. If the model declines a request, the API
+automatically retries on a fallback model (`fallbacks: "default"`). Estimated spend is on the Reports page.
+
+## Compliance
+Message only people who enquired or agreed to be contacted. Show your RERA number in ads. Honour opt-outs.
+Follow TRAI/DND rules for calls, and India's DPDP Act for personal data. Don't buy or scrape contact lists;
+this system deliberately has no cold-messaging or scraping features.
+
+## Tests
+```bash
+python -m pytest -q    # 21 end-to-end tests with a scripted fake model, no API key needed
+```

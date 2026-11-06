@@ -1,0 +1,126 @@
+# ============================================================
+#  Sales Agent configuration  —  copy to config.yaml and edit
+# ============================================================
+
+business:
+  name: "Sunrise Developers"
+  currency: "INR"
+  timezone: "Asia/Kolkata"
+  languages: ["English", "Tamil", "Hindi"]   # replies follow the customer's language
+  website: "https://example.com"
+
+# The owner / management approves every price change and confirms bookings.
+owner:
+  name: "Owner"
+  phone: "+919800000000"         # receives approvals, booking confirmations, daily digest
+  email: "owner@example.com"
+
+# Sales callers (relationship managers). Each lead is assigned to ONE person.
+# Every message to the customer goes out under that person's name and from their WhatsApp
+# Business number, so the customer always deals with the same person they spoke to on the phone.
+sales_team:
+  - name: "Anitha"
+    phone: "+919800000010"                 # personal number: gets call tasks and drafts to approve
+    whatsapp_phone_number_id: ""           # Meta WhatsApp Cloud API number ID for customer messages
+    message_mode: "review"                 # review = AI drafts, Anitha taps SEND; auto = AI sends directly
+    languages: ["English", "Tamil"]
+    style: "Warm, polite, uses 'sir/madam' with elders, short sentences, occasionally Tamil phrases."
+    max_active_leads: 80
+
+# Site staff who take customers around the site in person.
+site_persons:
+  - name: "Ravi"
+    phone: "+919800000001"
+    projects: ["Sunrise Meadows"]
+    working_days: [0, 1, 2, 3, 4, 5, 6]     # 0 = Monday
+    visit_hours: ["10:00", "18:00"]
+    max_visits_per_day: 6
+
+# Advance / booking amount. Customers pay ONLY into this account (online) or at the office.
+booking:
+  advance_amount: 200000                  # standard booking advance
+  payee_name: "Sunrise Developers Pvt Ltd"
+  bank_name: "HDFC Bank"
+  account_number: "50200000000000"
+  ifsc: "HDFC0000000"
+  upi_id: ""                              # optional
+  verify_phone: "+914400000000"           # customers can call this office line to verify the account
+  office_address: "Sunrise Developers, 12 Main Road, Adyar, Chennai"
+  office_hours: ["10:00", "18:00"]
+  office_days: [0, 1, 2, 3, 4, 5]
+  office_visit_slots_per_hour: 2
+
+projects:
+  - name: "Sunrise Meadows"
+    location: "OMR, Chennai"
+    type: "Gated community apartments"
+    status: "Under construction, possession Dec 2027"
+    rera: "TN/01/Building/0000/2026"
+    highlights:
+      - "5 min from IT corridor"
+      - "Clubhouse, pool, gym, kids play area"
+      - "Vastu compliant, east-facing options"
+    payment_plans:
+      - "Construction-linked plan (10% booking)"
+      - "Bank loan tie-ups: SBI, HDFC, ICICI"
+    units:
+      - type: "2BHK"
+        size_sqft: 1150          # area is FIXED — never negotiable
+        carpet_sqft: 820
+        list_price: 7500000
+        floor_price: 6900000          # NEVER shown to the AI or customers.
+        auto_approve_discount_pct: 0  # 0 = every discount needs management approval
+        available: 18
+      - type: "3BHK"
+        size_sqft: 1550
+        carpet_sqft: 1110
+        list_price: 10200000
+        floor_price: 9400000
+        auto_approve_discount_pct: 0
+        available: 9
+    free_concessions: []        # extras the AI may offer without approval (none = all need approval)
+    approval_concessions:
+      - "Free car parking"
+      - "Club membership waiver"
+      - "Documentation charges waiver"
+      - "Stamp duty assistance"
+
+agent:
+  model: "claude-opus-5-5"
+  effort_routine: "medium"      # first contact, follow-ups
+  effort_negotiation: "high"    # post-visit strategy, pricing, owner decisions
+  max_tool_rounds: 14
+
+learning:
+  run_every_days: 7             # re-learn from recent conversations, visits and calls
+  min_closed_leads: 3           # need at least this many won/lost leads to learn from
+
+followups:
+  # Hours after last contact, per stage, when a lead goes quiet.
+  new: [1, 24, 72]
+  contacted: [24, 48, 96]
+  qualified: [24, 48, 96]
+  visit_done: [4, 24, 72, 120]
+  negotiation: [24, 48, 96]
+  payment_pending: [24, 48, 72]
+  nurture_every_days: 14
+  max_attempts_before_nurture: 5
+
+messaging:
+  quiet_hours: ["20:30", "09:00"]   # no outbound messages to customers in this window
+  visit_reminders_hours_before: [24, 2]
+
+lead_scoring:
+  budget_fit: 35
+  timeline: 25
+  engagement: 25
+  source_quality: 15
+  source_weights:
+    referral: 1.0
+    website: 0.8
+    walk_in: 0.9
+    meta_ads: 0.6
+    google_ads: 0.7
+    portal: 0.6
+    csv_import: 0.5
+    other: 0.4

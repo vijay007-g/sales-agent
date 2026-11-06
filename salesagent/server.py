@@ -38,13 +38,17 @@ app = FastAPI(title="AI Sales Agent", lifespan=lifespan)
 
 
 def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
-    pw = env("DASHBOARD_PASSWORD")
+    pw = env("DASHBOARD_PASSWORD").strip().strip('"').strip("'")
     if not pw:
         raise HTTPException(503, "Set DASHBOARD_PASSWORD in .env first")
-    ok = secrets.compare_digest(creds.username, "owner") and secrets.compare_digest(creds.password, pw)
-    if not ok:
-        raise HTTPException(401, headers={"WWW-Authenticate": "Basic"})
-    return creds.username
+    # Tolerate stray spaces/newlines and capital letters in the username (common when pasting).
+    user_ok = secrets.compare_digest(creds.username.strip().lower().encode(), b"owner")
+    pass_ok = secrets.compare_digest(creds.password.strip().encode(), pw.encode())
+    if not (user_ok and pass_ok):
+        # Say which part is wrong (never the values) so a mistyped username is easy to spot.
+        detail = "Wrong username (use: owner)" if not user_ok else "Wrong password"
+        raise HTTPException(401, detail, headers={"WWW-Authenticate": "Basic"})
+    return "owner"
 
 
 def _check_secret(given: str | None) -> None:

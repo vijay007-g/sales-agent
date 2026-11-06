@@ -578,3 +578,14 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
     finally:
         monkeypatch.delenv("SALESAGENT_CONFIG")
         config.reload_settings()
+
+
+def test_login_tolerates_spaces_and_reports_which_part(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "Sunrise2026Sales")
+    with TestClient(app) as c:
+        assert c.get("/", auth=(" Owner ", "Sunrise2026Sales\n")).status_code == 200
+        assert c.get("/", auth=("admin", "Sunrise2026Sales")).json()["detail"].startswith("Wrong username")
+        assert c.get("/", auth=("owner", "nope")).json()["detail"] == "Wrong password"

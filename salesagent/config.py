@@ -108,8 +108,11 @@ class Settings:
 
 def writable_config_path() -> Path:
     """Where the dashboard's Settings page saves the config (on the cloud disk when deployed)."""
-    if os.environ.get("SALESAGENT_CONFIG"):
-        return Path(os.environ["SALESAGENT_CONFIG"])
+    custom = os.environ.get("SALESAGENT_CONFIG")
+    if custom:
+        path = Path(custom)
+        # A relative name is kept on the data disk, so it survives redeploys.
+        return path if path.is_absolute() else DATA_DIR / path
     return DATA_DIR / "config.yaml"
 
 

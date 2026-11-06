@@ -478,12 +478,12 @@ def test_settings_page_validates_and_saves(tmp_path, monkeypatch):
     text = open(config.ROOT / "config.example.yaml").read()
     try:
         with TestClient(app) as c:
-            bad = c.post("/settings", auth=("owner", "pw"), data={"config": "business: x"})
+            bad = c.post("/settings/advanced", auth=("owner", "pw"), data={"config": "business: x"})
             assert "Not saved" in bad.text and not (tmp_path / "cfg.yaml").exists()
-            worse = c.post("/settings", auth=("owner", "pw"),
+            worse = c.post("/settings/advanced", auth=("owner", "pw"),
                            data={"config": text.replace("floor_price: 6900000", "floor_price: 99000000")})
             assert "floor price is above list price" in worse.text
-            ok = c.post("/settings", auth=("owner", "pw"),
+            ok = c.post("/settings/advanced", auth=("owner", "pw"),
                         data={"config": text.replace('name: "Sunrise Developers"', 'name: "Vijay Homes"')})
             assert ok.status_code == 200 and (tmp_path / "cfg.yaml").exists()
             assert get_settings().business["name"] == "Vijay Homes"
@@ -510,3 +510,71 @@ def test_test_mode_from_browser(fresh, monkeypatch):
         assert "Pipeline" in out.text
         assert "Anitha here" in c.get("/test/outbox", auth=("owner", "pw")).text
         assert c.get("/manifest.json").json()["display"] == "standalone"
+
+
+def _form_data(**over):
+    d = {
+        "business[name]": "Vijay Homes", "business[website]": "", "business[languages]": "English, Tamil",
+        "business[timezone]": "Asia/Kolkata", "business[currency]": "INR",
+        "owner[name]": "Vijay", "owner[phone]": "98765 00000", "owner[email]": "",
+        "sales_team[0][name]": "Priya", "sales_team[0][phone]": "+91 98765 11111",
+        "sales_team[0][message_mode]": "review", "sales_team[0][languages]": "Tamil, English",
+        "sales_team[0][max_active_leads]": "50", "sales_team[0][whatsapp_phone_number_id]": "",
+        "sales_team[0][style]": "Friendly",
+        "sales_team[n1][name]": "", "sales_team[n1][phone]": "",          # empty added row is ignored
+        "site_persons[0][name]": "Kumar", "site_persons[0][phone]": "9876522222",
+        "site_persons[0][projects]": "Green Park", "site_persons[0][visit_hours][from]": "09:30",
+        "site_persons[0][visit_hours][to]": "17:30", "site_persons[0][max_visits_per_day]": "5",
+        "site_persons[0][working_days][]": ["0", "1", "2", "3", "4", "5"],
+        "projects[0][name]": "Green Park", "projects[0][location]": "Porur, Chennai", "projects[0][type]": "Villas",
+        "projects[0][status]": "Ready", "projects[0][rera]": "TN/1", "projects[0][highlights]": "Near metro\nPark",
+        "projects[0][payment_plans]": "Bank loans", "projects[0][approval_concessions]": "Free parking",
+        "projects[0][free_concessions]": "",
+        "projects[0][units][0][type]": "3BHK Villa", "projects[0][units][0][size_sqft]": "1800",
+        "projects[0][units][0][carpet_sqft]": "1400", "projects[0][units][0][list_price]": "1.2cr",
+        "projects[0][units][0][floor_price]": "110L", "projects[0][units][0][available]": "4",
+        "projects[0][units][0][auto_approve_discount_pct]": "0",
+        "booking[advance_amount]": "3L", "booking[payee_name]": "Vijay Homes Pvt Ltd", "booking[bank_name]": "SBI",
+        "booking[account_number]": "1234567890", "booking[ifsc]": "sbin0000001", "booking[upi_id]": "",
+        "booking[verify_phone]": "", "booking[office_address]": "Anna Nagar",
+        "booking[office_hours][from]": "10:00", "booking[office_hours][to]": "18:00",
+        "booking[office_visit_slots_per_hour]": "2", "booking[office_days][]": ["0", "1", "2", "3", "4", "5"],
+        "messaging[quiet_hours][from]": "21:00", "messaging[quiet_hours][to]": "09:00",
+    }
+    d.update(over)
+    return d
+
+
+def test_settings_form_round_trip(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import config
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setenv("SALESAGENT_CONFIG", str(tmp_path / "cfg.yaml"))
+    config.reload_settings()
+    try:
+        with TestClient(app) as c:
+            page_html = c.get("/settings", auth=("owner", "pw")).text
+            assert "Company name" in page_html and "Add salesperson" in page_html and "Floor price" in page_html
+            bad = c.post("/settings", auth=("owner", "pw"),
+                         data=_form_data(**{"projects[0][units][0][floor_price]": "2cr",
+                                            "site_persons[0][projects]": "Grn Park",
+                                            "owner[phone]": "123"}))
+            assert "Not saved" in bad.text and "floor price is above" not in bad.text   # field errors first
+            assert "Grn Park" in bad.text and "look like a full phone number" in bad.text
+            assert 'value="Grn Park"' in bad.text and not (tmp_path / "cfg.yaml").exists()   # input kept
+            r = c.post("/settings", auth=("owner", "pw"), data=_form_data())
+            assert r.status_code == 200 and "Saved" in r.text
+        s = get_settings()
+        assert s.business["name"] == "Vijay Homes" and s.owner["phone"] == "+919876500000"
+        assert [t["name"] for t in s.sales_team] == ["Priya"]
+        u = s.unit("Green Park", "3BHK Villa")
+        assert u["list_price"] == 12000000 and u["floor_price"] == 11000000
+        assert s.booking["advance_amount"] == 300000 and s.booking["ifsc"] == "SBIN0000001"
+        assert s.site_persons[0]["visit_hours"] == ["09:30", "17:30"] and 6 not in s.site_persons[0]["working_days"]
+        assert s.followups  # sections not on the form are kept
+        assert "6900000" not in prompts.system_prompt() and "11000000" not in prompts.system_prompt()
+    finally:
+        monkeypatch.delenv("SALESAGENT_CONFIG")
+        config.reload_settings()

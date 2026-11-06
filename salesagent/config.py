@@ -140,7 +140,10 @@ def validate_config(raw) -> list[str]:
             for k in ("type", "list_price", "floor_price"):
                 if k not in u:
                     errs.append(f"{p['name']}: a unit is missing '{k}'.")
-            if "list_price" in u and "floor_price" in u and u["floor_price"] > u["list_price"]:
+            lp, fp = u.get("list_price"), u.get("floor_price")
+            if not isinstance(lp, (int, float)) or not isinstance(fp, (int, float)):
+                errs.append(f"{p['name']} {u.get('type')}: prices must be numbers.")
+            elif fp > lp:
                 errs.append(f"{p['name']} {u.get('type')}: floor price is above list price.")
     for r in raw.get("sales_team") or []:
         if not r.get("name") or not r.get("phone"):

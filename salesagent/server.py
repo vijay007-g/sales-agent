@@ -14,7 +14,8 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from . import channels, db, events, learning, leads, marketing, pipeline, pricing, scheduler, team, visits
+from . import (channels, db, events, learning, leads, marketing, pipeline, pricing, scheduler, settings_form, team,
+               visits)
 from .config import (config_path, env, get_settings, reload_settings, validate_config,
                      writable_config_path)
 
@@ -611,36 +612,62 @@ async def call_form_submit(token: str, request: Request):
 
 # ============================ settings (edit config from any device) ============================
 
+def _current_raw() -> dict:
+    import yaml
+    return yaml.safe_load(config_path().read_text()) or {}
+
+
+def _save_raw_text(text: str) -> None:
+    path = writable_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text)
+    reload_settings()
+    db.audit(None, "owner", "settings_saved", "")
+
+
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(msg: str = "", _: str = Depends(owner_auth)):
-    text = config_path().read_text()
-    return page("Settings", f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
-<div class="card"><h3>Settings</h3><p>Projects, prices (list and floor), discounts, team members, site persons,
-bank details for the advance, follow-up timing. Floor prices and bank details here are only visible to you.
-After a booking, reduce the unit's <code>available</code> count.</p>
-<form method="post"><textarea name="config" rows="30" style="width:100%;font-family:ui-monospace,monospace;
-font-size:13px" spellcheck="false">{escape(text)}</textarea><button>Save settings</button></form>
-<small>Saved to {escape(str(writable_config_path()))}</small></div>""")
+def settings_page(saved: int = 0, _: str = Depends(owner_auth)):
+    return page("Settings", settings_form.render(_current_raw(), saved=bool(saved)))
 
 
 @app.post("/settings", response_class=HTMLResponse)
-def settings_save(config: str = Form(...), _: str = Depends(owner_auth)):
+async def settings_save(request: Request, _: str = Depends(owner_auth)):
+    import yaml
+    form = await request.form()
+    raw, errs = settings_form.build(form.multi_items(), _current_raw())
+    if not errs:
+        errs = validate_config(raw)
+    if errs:
+        return page("Settings", settings_form.render(raw, errors=errs))
+    _save_raw_text(yaml.safe_dump(raw, sort_keys=False, allow_unicode=True))
+    return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+@app.get("/settings/advanced", response_class=HTMLResponse)
+def settings_advanced(msg: str = "", _: str = Depends(owner_auth)):
+    text = config_path().read_text()
+    return page("Advanced settings", f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
+<div class="card"><h3>Advanced settings</h3><p>Everything in one text file, including follow-up timing, lead scoring and
+AI settings. Most things are easier on the <a href="/settings">Settings form</a>. Keep the spaces at the start of lines.</p>
+<form method="post"><textarea name="config" rows="30" style="width:100%;font-family:ui-monospace,monospace;
+font-size:13px" spellcheck="false">{escape(text)}</textarea><button>Save</button></form>
+<small>Saved to {escape(str(writable_config_path()))}</small></div>""")
+
+
+@app.post("/settings/advanced", response_class=HTMLResponse)
+def settings_advanced_save(config: str = Form(...), _: str = Depends(owner_auth)):
     import yaml
     try:
         raw = yaml.safe_load(config)
     except yaml.YAMLError as e:
         return page("Settings", f'<div class="notice">Not saved — formatting error: {escape(str(e))}</div>'
-                                f'<a href="/settings">Back</a>')
+                                f'<a href="/settings/advanced">Back</a>')
     errs = validate_config(raw)
     if errs:
         return page("Settings", '<div class="notice">Not saved:<ul>' + "".join(f"<li>{escape(x)}</li>" for x in errs)
-                    + '</ul></div><a href="/settings">Back</a>')
-    path = writable_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(config)
-    reload_settings()
-    db.audit(None, "owner", "settings_saved", "")
-    return RedirectResponse("/settings?msg=Saved.", status_code=303)
+                    + '</ul></div><a href="/settings/advanced">Back</a>')
+    _save_raw_text(config)
+    return RedirectResponse("/settings/advanced?msg=Saved.", status_code=303)
 
 
 # ============================ test mode (try everything from a phone before WhatsApp is live) ============================

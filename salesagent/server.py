@@ -41,8 +41,11 @@ def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
     pw = env("DASHBOARD_PASSWORD").strip().strip('"').strip("'")
     if not pw:
         raise HTTPException(503, "Set DASHBOARD_PASSWORD in .env first")
-    # Only the password matters; any username (e.g. "owner") is accepted. Stray spaces from pasting are ignored.
-    if not secrets.compare_digest(creds.password.strip().encode(), pw.encode()):
+    # Only the password matters; it is accepted from either box (people sometimes fill them the other way round).
+    # Stray spaces from pasting are ignored.
+    in_pass = secrets.compare_digest(creds.password.strip().encode(), pw.encode())
+    in_user = secrets.compare_digest(creds.username.strip().encode(), pw.encode())
+    if not (in_pass or in_user):
         raise HTTPException(401, "Wrong password", headers={"WWW-Authenticate": "Basic"})
     return "owner"
 

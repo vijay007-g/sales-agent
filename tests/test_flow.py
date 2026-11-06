@@ -589,3 +589,4 @@ def test_login_tolerates_spaces_and_reports_which_part(monkeypatch):
         assert c.get("/", auth=(" Owner ", "Sunrise2026Sales\n")).status_code == 200
         assert c.get("/", auth=("anything", "Sunrise2026Sales")).status_code == 200
         assert c.get("/", auth=("owner", "nope")).json()["detail"] == "Wrong password"
+        assert c.get("/", auth=("Sunrise2026Sales", "owner")).status_code == 200   # boxes swapped

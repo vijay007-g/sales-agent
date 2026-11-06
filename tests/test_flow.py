@@ -464,3 +464,49 @@ def test_migrates_old_database(tmp_path, monkeypatch):
     db.reset_connection()
     cols = {r[1] for r in db.conn().execute("PRAGMA table_info(leads)")}
     assert {"rm_name", "strategy", "stage", "memory"} <= cols
+
+
+# ------------------------------------------------------------------ cloud: settings + test mode
+
+def test_settings_page_validates_and_saves(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import config
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setenv("SALESAGENT_CONFIG", str(tmp_path / "cfg.yaml"))
+    text = open(config.ROOT / "config.example.yaml").read()
+    try:
+        with TestClient(app) as c:
+            bad = c.post("/settings", auth=("owner", "pw"), data={"config": "business: x"})
+            assert "Not saved" in bad.text and not (tmp_path / "cfg.yaml").exists()
+            worse = c.post("/settings", auth=("owner", "pw"),
+                           data={"config": text.replace("floor_price: 6900000", "floor_price: 99000000")})
+            assert "floor price is above list price" in worse.text
+            ok = c.post("/settings", auth=("owner", "pw"),
+                        data={"config": text.replace('name: "Sunrise Developers"', 'name: "Vijay Homes"')})
+            assert ok.status_code == 200 and (tmp_path / "cfg.yaml").exists()
+            assert get_settings().business["name"] == "Vijay Homes"
+    finally:
+        monkeypatch.delenv("SALESAGENT_CONFIG")
+        config.reload_settings()
+
+
+def test_test_mode_from_browser(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    fresh.fake.queue([tool_use("send_message", text="Hi Ravi, Anitha here!", channel="whatsapp")])
+    fresh.fake.queue([tool_use("send_message", text="Sure, Saturday works.", channel="whatsapp")])
+    with TestClient(app) as c:
+        r = c.post("/test/new", auth=("owner", "pw"), data={"name": "Ravi", "source": "website"})
+        lead_page = r.text
+        assert "TEST MODE" in lead_page and "Send as customer" in lead_page and "Hi Ravi" in lead_page
+        lead = db.q1("SELECT * FROM leads WHERE campaign = 'test'")
+        c.post(f"/test/{lead['id']}/customer", auth=("owner", "pw"), data={"text": "Can I visit Saturday?"})
+        assert "Can I visit Saturday?" in fresh.fake.agent_briefings()[-1]
+        out = c.post(f"/test/{lead['id']}/command", auth=("owner", "pw"), data={"role": "owner", "text": "STATUS"})
+        assert "Pipeline" in out.text
+        assert "Anitha here" in c.get("/test/outbox", auth=("owner", "pw")).text
+        assert c.get("/manifest.json").json()["display"] == "standalone"

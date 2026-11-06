@@ -17,10 +17,14 @@ def mode() -> str:
     return env("CHANNEL_MODE", "console").lower()
 
 
+def outbox_path():
+    return DATA_DIR / "outbox.log"
+
+
 def _console(kind: str, to: str, text: str) -> dict:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     line = f"[{get_settings().now():%Y-%m-%d %H:%M}] {kind} -> {to}\n{text}\n{'-' * 60}\n"
-    with open(DATA_DIR / "outbox.log", "a") as f:
+    with open(outbox_path(), "a") as f:
         f.write(line)
     log.info("%s -> %s: %s", kind, to, text[:200])
     for cb in CONSOLE_LISTENERS:

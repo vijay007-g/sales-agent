@@ -106,13 +106,53 @@ class Settings:
         return None
 
 
+def writable_config_path() -> Path:
+    """Where the dashboard's Settings page saves the config (on the cloud disk when deployed)."""
+    if os.environ.get("SALESAGENT_CONFIG"):
+        return Path(os.environ["SALESAGENT_CONFIG"])
+    return DATA_DIR / "config.yaml"
+
+
+def config_path() -> Path:
+    for path in (writable_config_path(), ROOT / "config.yaml"):
+        if path.exists():
+            return path
+    return ROOT / "config.example.yaml"
+
+
+def validate_config(raw) -> list[str]:
+    errs = []
+    if not isinstance(raw, dict):
+        return ["The settings must be a YAML mapping (key: value lines)."]
+    for key in ("business", "owner", "projects"):
+        if not raw.get(key):
+            errs.append(f"Missing section '{key}'.")
+    if raw.get("owner") and not raw["owner"].get("phone"):
+        errs.append("owner.phone is required.")
+    for p in raw.get("projects") or []:
+        if not p.get("name") or not p.get("units"):
+            errs.append("Every project needs a name and units.")
+            continue
+        for u in p["units"]:
+            for k in ("type", "list_price", "floor_price"):
+                if k not in u:
+                    errs.append(f"{p['name']}: a unit is missing '{k}'.")
+            if "list_price" in u and "floor_price" in u and u["floor_price"] > u["list_price"]:
+                errs.append(f"{p['name']} {u.get('type')}: floor price is above list price.")
+    for r in raw.get("sales_team") or []:
+        if not r.get("name") or not r.get("phone"):
+            errs.append("Every salesperson needs a name and phone.")
+    return errs
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    path = Path(os.environ.get("SALESAGENT_CONFIG", ROOT / "config.yaml"))
-    if not path.exists():
-        path = ROOT / "config.example.yaml"
-    with open(path) as f:
+    with open(config_path()) as f:
         return Settings(yaml.safe_load(f))
+
+
+def reload_settings() -> None:
+    get_settings.cache_clear()
 
 
 def env(name: str, default: str = "") -> str:

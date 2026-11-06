@@ -14,8 +14,9 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from . import db, events, learning, leads, marketing, pipeline, pricing, scheduler, team, visits
-from .config import env, get_settings
+from . import channels, db, events, learning, leads, marketing, pipeline, pricing, scheduler, team, visits
+from .config import (config_path, env, get_settings, reload_settings, validate_config,
+                     writable_config_path)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 security = HTTPBasic()
@@ -111,7 +112,6 @@ async def wa_inbound(request: Request, x_hub_signature_256: str | None = Header(
                     text = f"[customer sent a {m.get('type')} message]"
                 reply = events.staff_command(phone, text)
                 if reply is not None:
-                    from . import channels
                     channels.notify_staff(phone, reply)
                     continue
                 lead = db.find_lead_by_phone(phone)
@@ -139,16 +139,38 @@ input,textarea,select{padding:6px;border:1px solid #cfd4dd;border-radius:6px;fon
 .msg{padding:6px 10px;border-radius:8px;margin:4px 0;max-width:75%;white-space:pre-wrap}
 .in{background:#eef1f6}.out{background:#dcf3e4;margin-left:auto}.sys{background:#fff7e0;margin-left:auto;font-size:13px}
 .row{display:flex;flex-direction:column}
+header{flex-wrap:wrap;row-gap:8px;position:sticky;top:0;z-index:5}
+.card{overflow-x:auto}
+.grid2{display:grid;grid-template-columns:1fr 1.4fr;gap:16px}.grid2>div{min-width:0}
+.notice{background:#fff7e0;border:1px solid #f1d38a;border-radius:8px;padding:10px 14px;margin-bottom:16px}
+@media (max-width:800px){
+  header{padding:10px 12px;gap:14px;overflow-x:auto;flex-wrap:nowrap;white-space:nowrap}
+  header b{font-size:15px}
+  main{padding:12px}
+  .grid2{grid-template-columns:1fr}
+  .grid2>div:last-child{order:-1}
+  .msg{max-width:90%}
+  td,th{padding:6px 4px;font-size:13px}
+  input,textarea,select{font-size:16px;max-width:100%}
+  button{padding:10px 14px;font-size:15px}
+  .stage{min-width:70px;padding:8px 10px}.stage b{font-size:18px}
+}
 """
 
 
 def page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html><head><meta charset="utf-8"><title>{escape(title)}</title>
-<meta name="viewport" content="width=device-width,initial-scale=1"><style>{CSS}</style></head><body>
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1d2330">
+<link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
+<meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
 <a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
-<a href="/reports">Reports</a></header>
-<main>{body}</main></body></html>""")
+<a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
+<main>{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
+
+
+def test_mode() -> bool:
+    return channels.mode() != "live"
 
 
 def _temp(t: str) -> str:
@@ -315,7 +337,7 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
              if lead["needs_human"] else
              f'<form method="post" action="/leads/{lead_id}/pause"><button class="grey">Take over (pause AI)</button></form>')
     body = f"""<h2>#{lead['id']} {escape(lead['name'] or '')} {_temp(lead['temperature'])}</h2>
-<div style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px"><div>
+<div class="grid2"><div>
 <div class="card"><table>{prof}</table>{pause}</div>
 <div class="card"><h4>Conversion strategy</h4><div style="font-size:14px">{strat_html}</div></div>
 <div class="card"><h4>Calls</h4><table>{crows or '<tr><td>none</td></tr>'}</table></div>
@@ -324,8 +346,29 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
 <div class="card"><h4>Offers</h4><table>{orows or '<tr><td>none</td></tr>'}</table></div></div>
 <div><div class="card"><h4>Conversation</h4><div class="row">{chat or 'No messages yet.'}</div>
 <form method="post" action="/leads/{lead_id}/send" style="margin-top:10px"><textarea name="text" rows="2" style="width:100%" placeholder="Send a message yourself (as the business)"></textarea><button>Send</button></form></div>
-<div class="card"><h4>Activity log</h4><table>{lrows}</table></div></div></div>"""
+{_test_tools(lead_id) if test_mode() else ''}
+<div class="card"><h4>Activity log</h4><table>{lrows}</table></div></div></div>{AUTO_REFRESH}"""
     return page(lead["name"] or "Lead", body)
+
+
+AUTO_REFRESH = """<script>setInterval(function(){var a=document.activeElement;
+if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))return;
+var f=document.querySelectorAll('textarea,input[type=text],input:not([type])');
+for(var i=0;i<f.length;i++){if(f[i].value)return;}location.reload();},12000);</script>"""
+
+
+def _test_tools(lead_id: int) -> str:
+    return f"""<div class="card" style="border-color:#f1d38a"><h4>Test: play the other people</h4>
+<form method="post" action="/test/{lead_id}/customer"><textarea name="text" rows="2" style="width:100%"
+placeholder="Reply as the CUSTOMER, e.g. Looking for 2BHK under 75L, can I visit Saturday?"></textarea>
+<button>Send as customer</button></form>
+<form method="post" action="/test/{lead_id}/command" style="margin-top:10px">
+<select name="role"><option value="rm">Salesperson</option><option value="site">Site person</option>
+<option value="owner">Management</option></select>
+<input type="text" name="text" placeholder="e.g. CALLED C1 spoke, wants east facing" style="width:100%">
+<button class="grey">Run team command</button></form>
+<small>The AI takes 10–40 seconds to respond; this page refreshes itself. Call briefs, approvals and drafts sent to
+the team are in <a href="/test/outbox">Outbox</a>.</small></div>"""
 
 
 @app.post("/leads/{lead_id}/pause")
@@ -564,6 +607,117 @@ async def call_form_submit(token: str, request: Request):
                                                        "callback_time")}
     events.dispatch(events.call_logged, t["id"], outcome, data)
     return _form_page("Thanks", "<h3>Saved.</h3><p>The follow-up WhatsApp will go out in your name.</p>")
+
+
+# ============================ settings (edit config from any device) ============================
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(msg: str = "", _: str = Depends(owner_auth)):
+    text = config_path().read_text()
+    return page("Settings", f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
+<div class="card"><h3>Settings</h3><p>Projects, prices (list and floor), discounts, team members, site persons,
+bank details for the advance, follow-up timing. Floor prices and bank details here are only visible to you.
+After a booking, reduce the unit's <code>available</code> count.</p>
+<form method="post"><textarea name="config" rows="30" style="width:100%;font-family:ui-monospace,monospace;
+font-size:13px" spellcheck="false">{escape(text)}</textarea><button>Save settings</button></form>
+<small>Saved to {escape(str(writable_config_path()))}</small></div>""")
+
+
+@app.post("/settings", response_class=HTMLResponse)
+def settings_save(config: str = Form(...), _: str = Depends(owner_auth)):
+    import yaml
+    try:
+        raw = yaml.safe_load(config)
+    except yaml.YAMLError as e:
+        return page("Settings", f'<div class="notice">Not saved — formatting error: {escape(str(e))}</div>'
+                                f'<a href="/settings">Back</a>')
+    errs = validate_config(raw)
+    if errs:
+        return page("Settings", '<div class="notice">Not saved:<ul>' + "".join(f"<li>{escape(x)}</li>" for x in errs)
+                    + '</ul></div><a href="/settings">Back</a>')
+    path = writable_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(config)
+    reload_settings()
+    db.audit(None, "owner", "settings_saved", "")
+    return RedirectResponse("/settings?msg=Saved.", status_code=303)
+
+
+# ============================ test mode (try everything from a phone before WhatsApp is live) ============================
+
+@app.get("/test", response_class=HTMLResponse)
+def test_page(_: str = Depends(owner_auth)):
+    rows = db.q("SELECT id, name, stage, phone FROM leads WHERE campaign = 'test' ORDER BY id DESC")
+    trs = "".join(f'<tr><td><a href="/leads/{r["id"]}">#{r["id"]} {escape(r["name"] or "")}</a></td><td>{r["stage"]}</td></tr>'
+                  for r in rows)
+    sources = "".join(f"<option>{x}</option>" for x in ("meta_ads", "website", "portal", "google_ads", "walk_in", "referral"))
+    return page("Test", f"""<div class="card"><h3>Try the whole journey</h3>
+<p>Create a pretend lead, then reply as the customer and play the salesperson, site person and management from the
+lead's page.{'' if env('ANTHROPIC_API_KEY') else ' <b>Set ANTHROPIC_API_KEY first — the AI cannot reply without it.</b>'}</p>
+<form method="post" action="/test/new"><input name="name" placeholder="Customer name" value="" required>
+<select name="source">{sources}</select> <input name="unit_type" placeholder="2BHK / 3BHK">
+<input name="budget" placeholder="Budget e.g. 75L"><button>Create test lead</button></form></div>
+<div class="card"><h3>Test leads</h3><table>{trs or '<tr><td>None yet.</td></tr>'}</table></div>""")
+
+
+@app.post("/test/new")
+def test_new(name: str = Form(...), source: str = Form("meta_ads"), unit_type: str = Form(""), budget: str = Form(""),
+             _: str = Depends(owner_auth)):
+    n = db.q1("SELECT COUNT(*) n FROM leads WHERE campaign = 'test'")["n"]
+    lead, _created = leads.upsert_lead({"name": name, "phone": f"+9190000{n + 1:05d}", "source": source,
+                                        "campaign": "test", "unit_type": unit_type,
+                                        "budget_max": events.parse_amount(budget) if budget else None})
+    events.dispatch(events.new_lead, lead["id"])
+    return RedirectResponse(f"/leads/{lead['id']}", status_code=303)
+
+
+@app.post("/test/{lead_id}/customer")
+def test_customer(lead_id: int, text: str = Form(...), _: str = Depends(owner_auth)):
+    if not test_mode():
+        raise HTTPException(403, "Only in test mode")
+    lead = db.get_lead(lead_id)
+    events.dispatch(events.inbound_message, lead["phone"], None, text, "whatsapp")
+    return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+
+@app.post("/test/{lead_id}/command", response_class=HTMLResponse)
+def test_command(lead_id: int, role: str = Form(...), text: str = Form(...), _: str = Depends(owner_auth)):
+    if not test_mode():
+        raise HTTPException(403, "Only in test mode")
+    s = get_settings()
+    phone = {"owner": s.owner["phone"],
+             "rm": (team.rm_for(db.get_lead(lead_id)) or {}).get("phone", s.owner["phone"]),
+             "site": s.site_persons[0]["phone"] if s.site_persons else s.owner["phone"]}[role]
+    reply = events.staff_command(phone, text) or "Not recognised."
+    return page("Command", f'<div class="card"><b>Reply to {escape(role)}:</b><pre style="white-space:pre-wrap">'
+                           f'{escape(reply)}</pre><a href="/leads/{lead_id}">Back to lead</a></div>')
+
+
+@app.get("/test/outbox", response_class=HTMLResponse)
+def test_outbox(_: str = Depends(owner_auth)):
+    path = channels.outbox_path()
+    text = path.read_text()[-60000:] if path.exists() else "Nothing sent yet."
+    blocks = text.split("-" * 60 + "\n")[::-1]
+    return page("Outbox", '<div class="card"><h3>Everything sent (newest first)</h3>' + "".join(
+        f'<pre style="white-space:pre-wrap;border-bottom:1px solid #eee;padding:8px 0">{escape(b.strip())}</pre>'
+        for b in blocks if b.strip()) + "</div>")
+
+
+@app.get("/manifest.json")
+def manifest():
+    from fastapi.responses import JSONResponse
+    return JSONResponse({"name": f"{get_settings().business['name']} Sales", "short_name": "Sales",
+                         "start_url": "/", "display": "standalone", "background_color": "#f6f7f9",
+                         "theme_color": "#1d2330",
+                         "icons": [{"src": "/icon.svg", "sizes": "any", "type": "image/svg+xml"}]})
+
+
+@app.get("/icon.svg")
+def icon():
+    from fastapi.responses import Response
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" rx="22" '
+           'fill="#1d2330"/><path d="M22 58 50 34l28 24v22H58V64H42v16H22z" fill="#fff"/></svg>')
+    return Response(svg, media_type="image/svg+xml")
 
 
 @app.get("/health")

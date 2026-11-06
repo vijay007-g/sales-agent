@@ -211,11 +211,6 @@ def payment_received(booking_id: int, amount: int | None, ref: str) -> str:
                                        "payment_ref": ref, "paid_at": db.now_iso()})
     o = db.q1("SELECT * FROM offers WHERE id = ?", (b["offer_id"],))
     db.update("offers", o["id"], {"status": "accepted"})
-    for p in get_settings().raw.get("projects", []):
-        if p["name"] == o["project"]:
-            for u in p["units"]:
-                if u["type"] == o["unit_type"] and u.get("available", 0) > 0:
-                    u["available"] -= 1   # in-memory; update config.yaml for permanence
     pipeline.move(b["lead_id"], "booked", "owner", f"advance received B{booking_id} {ref}")
     db.update("leads", b["lead_id"], {"next_followup_at": None})
     for v in db.q("SELECT id FROM site_visits WHERE lead_id = ? AND kind = 'office' AND status = 'scheduled'",
@@ -227,7 +222,8 @@ def payment_received(booking_id: int, amount: int | None, ref: str) -> str:
              f"({pricing.fmt_money(amount or b['token_amount'])}, ref {ref or '-'}). The flat is booked. Congratulate "
              "the customer warmly, explain next steps (agreement, documents, loan process if any), and if it feels "
              "right ask whether friends or family are also looking.")
-    return f"Payment for B{booking_id} recorded. Lead marked BOOKED. 🎉"
+    return (f"Payment for B{booking_id} recorded. Lead marked BOOKED. 🎉\n"
+            f"Remember to reduce {o['unit_type']} availability for {o['project']} in Settings.")
 
 
 # ------------------------- team WhatsApp commands -------------------------

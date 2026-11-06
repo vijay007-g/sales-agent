@@ -116,7 +116,7 @@ def cmd_tick(a):
 def main(argv=None):
     p = argparse.ArgumentParser(prog="salesagent")
     sub = p.add_subparsers(dest="cmd", required=True)
-    sp = sub.add_parser("serve"); sp.add_argument("--host", default="0.0.0.0"); sp.add_argument("--port", type=int, default=8000)
+    sp = sub.add_parser("serve"); sp.add_argument("--host", default="0.0.0.0"); sp.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
     sp.set_defaults(fn=cmd_serve)
     sp = sub.add_parser("simulate"); sp.add_argument("--name", default="Karthik"); sp.add_argument("--phone", default="+919811111111")
     sp.add_argument("--source", default="meta_ads")

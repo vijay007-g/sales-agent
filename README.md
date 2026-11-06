@@ -64,7 +64,34 @@ In **review mode** (`message_mode: review`, recommended for the first weeks), ev
 salesperson as a draft: `SEND D4`, or `EDIT D4 <better text>`. Edits are learned from. Switch to `auto` once
 you trust the tone.
 
-## Setup
+## Deploy to the cloud (Railway) — use it from phone, laptop, any device
+1. Go to https://railway.com, sign in with GitHub, and pick the Hobby plan.
+2. **New Project → Deploy from GitHub repo → `vijay007-g/sales-agent`.** Railway finds the `Dockerfile` and
+   builds it.
+3. In the service, open **Settings → Volumes → Add volume** and set the mount path to **`/data`**. This is
+   where the database, your settings and the message log are kept; without it, data is lost on every redeploy.
+4. **Variables** tab, add:
+   | Name | Value |
+   |---|---|
+   | `ANTHROPIC_API_KEY` | from console.anthropic.com |
+   | `DASHBOARD_PASSWORD` | a strong password (you log in as user `owner`) |
+   | `LEAD_WEBHOOK_SECRET` | any long random text |
+   | `CHANNEL_MODE` | `console` for now (test mode; nothing reaches customers) |
+   | `PUBLIC_BASE_URL` | the address from step 5, e.g. `https://sales-agent-production.up.railway.app` |
+5. **Settings → Networking → Generate Domain.** That address is your app. Open it on any device and log in.
+6. **Phone:** open the address in Chrome (Android) → menu → *Add to Home screen*, or in Safari (iPhone) →
+   Share → *Add to Home Screen*. It opens like an app.
+7. Open **Settings** in the app and enter your real projects, prices, floor prices, team and bank details.
+8. Open **Test**: create a pretend lead and play the customer, salesperson, site person and management, all
+   from your phone.
+9. When WhatsApp Business is approved, add `WHATSAPP_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`,
+   `WHATSAPP_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` and `WHATSAPP_TEMPLATE_NAME`, set `CHANNEL_MODE` to `live`,
+   and set the Meta webhook to `<your address>/webhook/whatsapp`.
+
+Keep it at **one replica** (already set in `railway.json`): the database and the follow-up clock run inside
+the app. Every push to GitHub redeploys automatically; your data on `/data` is kept.
+
+## Local setup (optional, for developers)
 ```bash
 cd sales-agent
 pip install -r requirements.txt

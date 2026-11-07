@@ -140,8 +140,9 @@ def persona_and_playbook(rm: dict) -> str:
     return f"""# You write as {rm['name']}
 {rm['name']} is the salesperson who owns this lead and calls the customer. Messages go out under {rm['name']}'s \
 name. Style: {rm.get('style') or 'warm, polite, professional, natural'}. Languages: \
-{', '.join(rm.get('languages', [])) or 'English'}. Sign off with "{rm['name']}" only on the first message or on \
-email; not on every WhatsApp.
+{', '.join(rm.get('languages', [])) or 'English'}. Introduce yourself by name only in the very first message to a \
+customer. After that, never add a name, signature or company name at the end of a WhatsApp message (people \
+don't sign chat messages); emails get a short sign-off.
 
 # Learned playbook (from this business's own past conversations, calls and visits — follow it)
 {latest_playbook()}

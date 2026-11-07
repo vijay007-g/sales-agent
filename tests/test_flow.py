@@ -608,3 +608,34 @@ def test_drafts_show_on_lead_page_and_send_from_there(fresh, monkeypatch):
                    data={"action": "send", "text": "Hi Asha, Anitha here!", "back": f"/leads/{lead['id']}"})
         assert r.url.path == f"/leads/{lead['id']}" and "DRAFT D1" not in r.text
     assert to(fresh, lead["phone"]) == ["Hi Asha, Anitha here!"]
+
+
+def test_new_event_withdraws_stale_drafts(fresh, monkeypatch):
+    monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
+    lead = mk_lead()
+    team.assign_rm(lead["id"])
+    team.send_or_draft(lead["id"], "I'll call you in 5 mins. What's your name?")
+    t = team.create_call_task(lead["id"], "Intro", 10, "b")
+    fresh.fake.queue([tool_use("send_message", text="Great speaking with you!", channel="whatsapp")])
+    events.staff_command(rm_phone(), f"CALLED C{t['task_id']} spoke, name is Asha")
+    assert db.q1("SELECT status FROM drafts WHERE id = 1")["status"] == "superseded"
+    assert "never sent" in fresh.fake.agent_briefings()[-1] and "What's your name?" in fresh.fake.agent_briefings()[-1]
+    assert "already" in events.staff_command(rm_phone(), "SEND D1") or "not pending" in events.staff_command(rm_phone(), "SEND D1")
+    assert db.q1("SELECT status FROM drafts WHERE id = 2")["status"] == "pending"   # the fresh one
+
+
+def test_unchanged_draft_is_not_counted_as_edit(fresh, monkeypatch):
+    monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
+    lead = mk_lead()
+    team.send_or_draft(lead["id"], "Line one\nLine two")
+    team.approve_draft(1, "Line one\r\nLine two  ")
+    assert db.q1("SELECT status FROM drafts WHERE id = 1")["status"] == "sent"
+    assert not db.q1("SELECT id FROM audit WHERE action = 'draft_edited'")
+
+
+def test_bare_small_numbers_are_lakhs():
+    assert events.parse_amount("95") == 9500000
+    assert events.parse_amount("97.5") == 9750000
+    assert events.parse_amount("80 lakhs") == 8000000
+    assert events.parse_amount("2 crores") == 20000000
+    assert events.parse_amount("200000") == 200000

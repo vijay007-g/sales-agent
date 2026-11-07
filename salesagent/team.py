@@ -93,6 +93,8 @@ def approve_draft(draft_id: int, edited_text: str | None = None, actor: str = "r
     d = db.q1("SELECT * FROM drafts WHERE id = ?", (draft_id,))
     if not d or d["status"] != "pending":
         return f"Draft D{draft_id} is not pending."
+    if edited_text is not None and " ".join(edited_text.split()) == " ".join(d["text"].split()):
+        edited_text = None   # only whitespace differs: not a real edit
     text = (edited_text or d["text"]).strip()
     res = deliver(d["lead_id"], text, d["channel"], d["subject"] or "",
                   author="agent" if not edited_text else "rm")

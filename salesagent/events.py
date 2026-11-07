@@ -229,12 +229,16 @@ def payment_received(booking_id: int, amount: int | None, ref: str) -> str:
 # ------------------------- team WhatsApp commands -------------------------
 
 def parse_amount(tok: str) -> int | None:
-    t = tok.lower().replace(",", "").replace("₹", "").strip()
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)(cr|crore|l|lakh|lac|k)?", t)
+    t = tok.lower().replace(",", "").replace("₹", "").replace(" ", "").strip()
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(cr|crore|crores|l|lakh|lakhs|lac|lacs|k)?", t)
     if not m:
         return None
     n = float(m.group(1))
-    mult = {"cr": 1e7, "crore": 1e7, "l": 1e5, "lakh": 1e5, "lac": 1e5, "k": 1e3}.get(m.group(2) or "", 1)
+    unit = m.group(2) or ""
+    mult = {"cr": 1e7, "crore": 1e7, "crores": 1e7, "l": 1e5, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5,
+            "k": 1e3}.get(unit, 1)
+    if not unit and n < 1000:
+        mult = 1e5   # a bare "95" or "97.5" for a flat price means lakhs, not rupees
     return int(n * mult)
 
 

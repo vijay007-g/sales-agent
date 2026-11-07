@@ -495,7 +495,8 @@ def draft_action(draft_id: int, action: str = Form(...), text: str = Form(""), b
         team.drop_draft(draft_id)
     else:
         d = db.q1("SELECT text FROM drafts WHERE id = ?", (draft_id,))
-        edited = text.strip() if d and text.strip() and text.strip() != d["text"].strip() else None
+        same = d and " ".join(text.split()) == " ".join(d["text"].split())
+        edited = text.replace("\r\n", "\n").strip() if d and text.strip() and not same else None
         team.approve_draft(draft_id, edited, actor="owner")
     return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/", status_code=303)
 

@@ -61,6 +61,15 @@ def _run(lead_id: int, event: str, detail: str) -> ToolContext:
         {"type": "text", "text": prompts.system_prompt(), "cache_control": {"type": "ephemeral"}},
         {"type": "text", "text": prompts.persona_and_playbook(rm), "cache_control": {"type": "ephemeral"}},
     ]
+    stale = db.q("SELECT id, text FROM drafts WHERE lead_id = ? AND status = 'pending' ORDER BY id", (lead_id,))
+    if stale:
+        for d in stale:
+            db.update("drafts", d["id"], {"status": "superseded", "decided_at": db.now_iso()})
+        db.audit(lead_id, "system", "drafts_superseded", [d["id"] for d in stale])
+        detail += ("\n\nNote: these earlier drafts of yours were never sent (the salesperson hadn't approved them "
+                   "before this new event) and have been withdrawn:\n" + "\n".join(f"- {d['text']}" for d in stale)
+                   + "\nThe customer has NOT seen them. Write one fresh message that fits the situation now, "
+                     "keeping only what is still relevant.")
     messages: list = [{"role": "user", "content": prompts.lead_briefing(lead_id, event, detail)}]
     max_rounds = int(s.agent.get("max_tool_rounds", 12))
 

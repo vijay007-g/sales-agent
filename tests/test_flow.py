@@ -1049,9 +1049,7 @@ def test_access_key_login(monkeypatch):
     with TestClient(app) as c:
         assert c.get("/", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
         assert c.get("/inventory", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
-        assert c.get("/", headers={"Authorization": "Bearer wrong-key-wrong-key"}).json()["detail"].startswith(
-            "Wrong access key: different length")
-        assert "capital" in c.get("/", headers={"Authorization": "Bearer K9FQ72LMZP0XWD4S"}).json()["detail"]
+        assert c.get("/", headers={"Authorization": "Bearer wrong-key-wrong-key"}).json()["detail"] == "Wrong access key"
         assert c.get("/", auth=("owner", "pw12345")).status_code == 200            # browser login still works
         r = c.get("/")
         assert r.status_code == 401 and r.headers["www-authenticate"] == "Basic"   # browser still gets the prompt
@@ -1075,3 +1073,27 @@ def test_new_builder_from_project_form(monkeypatch):
     p = db.q1("SELECT * FROM inv_projects WHERE name = 'Anna Nagar Towers'")
     assert b and b["is_own"] == 0 and b["commission_value"] == 2.5 and b["contact_phone"] == "+919876512345"
     assert p["builder_id"] == b["id"] and p["city"] == "Chennai"
+
+
+def test_cost_sheet_applies_approved_free_parking_and_nil_gst(fresh):
+    from salesagent import inventory, sales_kit
+    inventory.load_sample()
+    p = inventory.get_project("Whitefield Skyline (sample)")
+    unit = db.q1("SELECT * FROM units WHERE unit_no = 'C-1203'")
+    lead = mk_lead(city="Bangalore")
+    db.insert("offers", {"lead_id": lead["id"], "unit_id": unit["id"], "project": p["name"], "unit_type": "2BHK",
+                         "list_price": 9600000, "offered_price": 9600000, "owner_counter_price": 9500000,
+                         "concessions": json.dumps(["Car parking included at no extra charge"]), "status": "countered"})
+    text = sales_kit.cost_sheet(p, unit, lead["id"])["text"]
+    assert "Unit price (your approved price): ₹95.00 L" in text
+    assert "Car parking: included free (approved)" in text and "Car parking: ₹4.00 L" not in text
+    assert "GST: nil (ready to move)" in text and "Maintenance deposit: ₹1.20 L" in text
+    assert "Approx. total: ₹1.02 Cr" in text          # 95 + 4.75 + 0.95 + 1.2 = 101.9 L
+
+
+def test_waiver_matching_ignores_generic_words():
+    from salesagent.sales_kit import _waived
+    assert _waived("Car parking", ["Free car parking"])
+    assert _waived("Club membership", ["Club membership waiver"])
+    assert not _waived("Registration charges", ["Documentation charges waiver"])
+    assert not _waived("Maintenance deposit", ["Car parking included at no extra charge"])

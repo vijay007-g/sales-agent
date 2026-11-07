@@ -95,29 +95,55 @@ def _charges(project: dict) -> list[tuple[str, int]]:
     return out
 
 
+def approved_offer(lead_id: int | None, unit: dict) -> dict | None:
+    if not lead_id:
+        return None
+    return db.q1("SELECT * FROM offers WHERE lead_id = ? AND unit_id = ? AND status IN "
+                 "('auto_approved','approved','countered','accepted') ORDER BY id DESC LIMIT 1", (lead_id, unit["id"]))
+
+
 def approved_price(lead_id: int | None, unit: dict) -> tuple[int, str]:
     """Management-approved price for this lead and unit if any, else the list price."""
-    if lead_id:
-        o = db.q1("SELECT * FROM offers WHERE lead_id = ? AND unit_id = ? AND status IN "
-                  "('auto_approved','approved','countered','accepted') ORDER BY id DESC LIMIT 1", (lead_id, unit["id"]))
-        if o:
-            return int(o["owner_counter_price"] or o["offered_price"]), "your approved price"
+    o = approved_offer(lead_id, unit)
+    if o:
+        return int(o["owner_counter_price"] or o["offered_price"]), "your approved price"
     return int(unit["list_price"]), "list price"
 
 
+def _waived(label: str, concessions: list[str]) -> bool:
+    """True if an approved concession covers this charge (e.g. 'Free car parking' covers 'Car parking')."""
+    generic = {"charge", "charges", "fees", "cost", "costs", "amount", "free", "extra", "included", "waiver", "total",
+               "price", "advance"}
+    words = {w for w in re.findall(r"[a-z]+", label.lower()) if len(w) > 3 and w not in generic}
+    text = " ".join(concessions).lower()
+    return bool(words) and any(w in text for w in words)
+
+
 def cost_sheet(project: dict, unit: dict, lead_id: int | None = None) -> dict:
+    import json as _json
     price, basis = approved_price(lead_id, unit)
+    offer = approved_offer(lead_id, unit)
+    concessions = _json.loads(offer["concessions"] or "[]") if offer and offer.get("concessions") else []
     lines = [("Unit price" + (f" ({basis})" if basis != "list price" else ""), price)]
-    for label, pct in (("GST", project.get("gst_pct")), ("Stamp duty", project.get("stamp_duty_pct")),
+    notes = []
+    gst = project.get("gst_pct")
+    if gst not in (None, "") and float(gst) == 0:
+        notes.append("GST: nil (ready to move)")
+    for label, pct in (("GST", gst), ("Stamp duty", project.get("stamp_duty_pct")),
                        ("Registration", project.get("registration_pct"))):
         if pct not in (None, "") and float(pct) > 0:
             lines.append((f"{label} ({float(pct):g}%)", int(round(price * float(pct) / 100))))
-    lines += _charges(project)
+    for label, amount in _charges(project):
+        if _waived(label, concessions):
+            notes.append(f"{label}: included free (approved)")
+        else:
+            lines.append((label, amount))
     total = sum(v for _, v in lines)
     unit_desc = " ".join(x for x in (unit.get("unit_no") or "", f"({unit['unit_type']}"
                                      + (f", {unit['size_sqft']} sq ft" if unit.get("size_sqft") else "") + ")") if x)
     text = [f"Cost sheet — {project['name']}, {unit_desc}"]
     text += [f"{label}: {fmt_money(v)}" for label, v in lines]
+    text += notes
     text.append(f"Approx. total: {fmt_money(total)}")
     missing = [x for x, k in (("GST", "gst_pct"), ("stamp duty", "stamp_duty_pct"), ("registration", "registration_pct"))
                if project.get(k) in (None, "")]

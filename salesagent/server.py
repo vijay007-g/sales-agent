@@ -71,14 +71,7 @@ def check_auth_header(header: str | None) -> str:
         if len(token) < 16:
             raise HTTPException(401, "DASHBOARD_API_TOKEN is too short (use 16+ characters)",
                                 headers={"WWW-Authenticate": "Basic"})
-        # Say how the keys differ (never the key itself or its length) so a typo is easy to fix.
-        if value.lower() == token.lower():
-            hint = "same key but capital/small letters differ"
-        elif len(value) != len(token):
-            hint = "different length (missing or extra characters)"
-        else:
-            hint = "same length but some characters differ"
-        raise HTTPException(401, f"Wrong access key: {hint}", headers={"WWW-Authenticate": "Basic"})
+        raise HTTPException(401, "Wrong access key", headers={"WWW-Authenticate": "Basic"})
     raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Basic"})
 
 

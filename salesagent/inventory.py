@@ -246,7 +246,13 @@ def project_facts(project: dict, max_units: int = 30) -> dict:
             "extras_needing_management_approval": project["approval_concessions"],
             "unit_types": [{k: v for k, v in t.items() if k not in ("prices", "sizes")}
                            for t in type_summary(project["id"])],
-            "available_units": units[:max_units], "more_units": max(0, len(units) - max_units)}
+            "available_units": units[:max_units], "more_units": max(0, len(units) - max_units),
+            "documents_you_can_send": _docs(project["id"])}
+
+
+def _docs(project_id: int) -> list[str]:
+    from .sales_kit import media_summary
+    return media_summary(project_id)
 
 
 def catalog_text() -> str:
@@ -403,3 +409,107 @@ def _int(v) -> int | None:
         return int(float(str(v).replace(",", ""))) if v not in (None, "") else None
     except ValueError:
         return None
+
+
+# ------------------------------------------------------------------ landing-page slugs
+
+def slugify(name: str) -> str:
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return s or "project"
+
+
+def ensure_slug(project_id: int) -> str:
+    p = db.q1("SELECT id, name, slug FROM inv_projects WHERE id = ?", (project_id,))
+    if p["slug"]:
+        return p["slug"]
+    base = slugify(p["name"])
+    slug, n = base, 2
+    while db.q1("SELECT id FROM inv_projects WHERE slug = ? AND id != ?", (slug, project_id)):
+        slug, n = f"{base}-{n}", n + 1
+    db.update("inv_projects", project_id, {"slug": slug})
+    return slug
+
+
+def by_slug(slug: str) -> dict | None:
+    for p in db.q("SELECT id FROM inv_projects WHERE slug IS NULL OR slug = ''"):
+        ensure_slug(p["id"])
+    return project_dict(db.q1("SELECT * FROM inv_projects WHERE slug = ? AND active = 1", (slug,)))
+
+
+# ------------------------------------------------------------------ trial inventory
+
+SAMPLE = [
+    # name, builder key, city, locality, status, possession, gst, stamp, reg, other charges, highlights, units
+    ("Vadapalani Residency (sample)", "own", "Chennai", "Vadapalani", "Under construction", "Mar 2028", 5, 7, 2,
+     "Car parking: 4L\nCorpus fund: 1.5L", "2 min walk to Vadapalani metro\nForum mall and hospitals nearby\nClubhouse, pool, gym",
+     [("A-302", "2BHK", "3", "East", 1120, 14200000), ("A-704", "2BHK", "7", "North", 1120, 14600000),
+      ("B-505", "3BHK", "5", "East", 1520, 19400000), ("B-1102", "3BHK", "11", "West", 1520, 20200000)]),
+    ("Porur Greens (sample)", "greenfield", "Chennai", "Porur", "Under construction", "Jun 2027", 5, 7, 2,
+     "Car parking: 3L\nCorpus fund: 1L", "Near Porur junction and DLF IT park\nSchools within 2 km\nGated community, 3 acres",
+     [("T1-201", "2BHK", "2", "East", 1050, 7800000), ("T1-608", "2BHK", "6", "North", 1050, 8300000),
+      ("T2-404", "3BHK", "4", "East", 1400, 10900000), ("", "3BHK", "", "", 1400, 11300000, 6)]),
+    ("Whitefield Skyline (sample)", "urbannest", "Bangalore", "Whitefield", "Ready to move", "Ready", 0, 5, 1,
+     "Car parking: 4L\nMaintenance deposit: 1.2L", "Walk to ITPL and Whitefield metro\nReady to move, OC received\nRooftop clubhouse",
+     [("C-1203", "2BHK", "12", "East", 1250, 9600000), ("C-0802", "2BHK", "8", "South", 1250, 9300000),
+      ("D-1501", "3BHK", "15", "East", 1650, 14100000)]),
+    ("Electronic City Meadows (sample)", "greenfield", "Bangalore", "Electronic City Phase 1", "Under construction",
+     "Dec 2027", 5, 5, 1, "Car parking: 2.5L", "10 min to Infosys and Wipro campuses\nNear elevated expressway\nLarge central park",
+     [("", "1BHK", "", "", 650, 4500000, 10), ("E-305", "2BHK", "3", "East", 1050, 6900000),
+      ("E-912", "2BHK", "9", "North", 1050, 7300000)]),
+]
+
+
+def load_sample() -> int:
+    """Add trial builders, projects and units (marked 'sample'); safe to call twice."""
+    if db.q1("SELECT id FROM inv_projects WHERE is_sample = 1"):
+        return 0
+    owner = get_settings().owner.get("phone", "")
+    builders = {"own": own_builder_id()}
+    for key, name, pct in (("greenfield", "Greenfield Homes (sample)", 2.0), ("urbannest", "Urban Nest Builders (sample)", 1.5)):
+        builders[key] = db.insert("builders", {
+            "name": name, "is_own": 0, "is_sample": 1, "contact_name": "Sample CRM desk", "contact_phone": owner,
+            "commission_type": "pct", "commission_value": pct, "payment_terms_days": 45,
+            "registration_validity_days": 90, "bank_payee": "SAMPLE — do not pay", "bank_name": "Sample Bank",
+            "bank_account": "000000000000", "bank_ifsc": "SAMP0000000", "verify_phone": owner,
+            "notes": "Trial data. Registrations go to your own number so you can test ACK R<no>.",
+            "created_at": db.now_iso()})
+    for (name, bkey, city, loc, status, poss, gst, stamp, reg, other, hl, units) in SAMPLE:
+        pid = db.insert("inv_projects", {
+            "builder_id": builders[bkey], "name": name, "city": city, "locality": loc, "type": "Apartments",
+            "status": status, "possession": poss, "rera": "SAMPLE-RERA", "highlights": hl,
+            "payment_plans": "Construction-linked plan\nHome loans from major banks", "approval_concessions":
+            "Free car parking\nClub membership waiver", "free_concessions": "", "site_host_name": "Sample site team",
+            "site_host_phone": owner, "visit_hours": "10:00-18:00", "visit_days": "0,1,2,3,4,5,6",
+            "max_visits_per_day": 6, "gst_pct": gst, "stamp_duty_pct": stamp, "registration_pct": reg,
+            "other_charges": other, "is_sample": 1, "active": 1, "created_at": db.now_iso(), "updated_at": db.now_iso()})
+        ensure_slug(pid)
+        for u in units:
+            no, typ, floor, facing, size, price = u[:6]
+            qty = u[6] if len(u) > 6 else 1
+            db.insert("units", {"project_id": pid, "unit_no": no, "unit_type": typ, "floor": floor, "facing": facing,
+                                "size_sqft": size, "carpet_sqft": int(size * 0.72), "list_price": price,
+                                "floor_price": int(price * 0.94), "quantity": qty, "status": "available",
+                                "updated_at": db.now_iso()})
+    db.audit(None, "owner", "sample_inventory_loaded", "")
+    return len(SAMPLE)
+
+
+def remove_sample() -> dict:
+    """Remove trial data. Projects with bookings or commissions are paused instead of deleted."""
+    removed = paused = 0
+    for p in db.q("SELECT id FROM inv_projects WHERE is_sample = 1"):
+        used = db.q1("SELECT 1 x FROM commissions WHERE project_id = ? UNION SELECT 1 FROM bookings b JOIN units u "
+                     "ON u.id = b.unit_id WHERE u.project_id = ?", (p["id"], p["id"]))
+        if used:
+            db.update("inv_projects", p["id"], {"active": 0})
+            paused += 1
+            continue
+        db.q("DELETE FROM units WHERE project_id = ?", (p["id"],))
+        db.q("DELETE FROM media WHERE project_id = ?", (p["id"],))
+        db.q("DELETE FROM inv_projects WHERE id = ?", (p["id"],))
+        removed += 1
+    for b in db.q("SELECT id FROM builders WHERE is_sample = 1"):
+        if not db.q1("SELECT id FROM inv_projects WHERE builder_id = ?", (b["id"],)):
+            db.q("DELETE FROM builders WHERE id = ?", (b["id"],))
+    db.audit(None, "owner", "sample_inventory_removed", {"removed": removed, "paused": paused})
+    return {"removed": removed, "paused": paused}

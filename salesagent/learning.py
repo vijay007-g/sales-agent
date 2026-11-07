@@ -69,7 +69,7 @@ def gather(days: int = 120) -> dict:
     progressing = db.q("SELECT * FROM leads WHERE stage IN ('visit_done','negotiation','booking_pending') "
                        "ORDER BY score DESC LIMIT 10")
     edits = db.q("SELECT detail FROM audit WHERE action = 'draft_edited' ORDER BY id DESC LIMIT 40")
-    from .marketing import funnel_report
+    from .marketing import funnel_report, spend_report
     return {
         "won": [_lead_dossier(x) for x in won],
         "lost_or_stalled": [_lead_dossier(x) for x in lost],
@@ -77,6 +77,7 @@ def gather(days: int = 120) -> dict:
         "salesperson_edits_to_ai_drafts": [json.loads(e["detail"]) for e in edits],
         "funnel_by_source": funnel_report("source"),
         "funnel_by_campaign": funnel_report("campaign"),
+        "spend_and_unit_economics": spend_report("source")[:24],
         "counts": {"won": len(won), "lost": len(lost)},
     }
 

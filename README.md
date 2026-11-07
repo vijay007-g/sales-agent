@@ -76,6 +76,24 @@ personally handling their enquiry. It then sets up a call.
   message, never pretends to be a person, and arranges a human immediately on request. Change the wording in
   Settings → "How the AI introduces itself".
 
+## Sales kit, landing pages, marketing spend
+- **Brochures, floor plans, photos:** upload per project on its Inventory page (PDF ≤ 16 MB, images ≤ 5 MB). The AI
+  sends them as WhatsApp attachments (`send_brochure`); in review mode they go to the salesperson as drafts first.
+- **Cost sheets:** set GST %, stamp duty %, registration % and other charges ("Car parking: 3L") per project. The AI
+  sends an exact cost sheet (`send_cost_sheet`) using the list price — or the price management approved for that
+  buyer — and never types figures itself.
+- **EMI illustrations:** `send_emi_illustration`, calculated by code with the rate, tenure and down payment from
+  Settings → Messaging & loan illustrations; always labelled illustrative.
+- **Landing pages:** every project has a public, phone-friendly page at `/p/<project>` and there's an all-projects
+  page at `/enquire?city=Chennai`. Use them as ad destinations with `?src=meta_ads&c=C3-V2`. The form records consent
+  (exact wording, time and page) for India's DPDP rules, filters spam (hidden field + 5 per hour per connection),
+  and hands the lead to the AI instantly. A privacy page is at `/privacy`.
+- **Marketing spend:** Reports → enter monthly spend per channel (and per campaign code). The tables show leads,
+  qualified, visited, booked and **cost per lead / qualified lead / visit / booking**, plus commission earned —
+  so spend goes up only where bookings justify it. The weekly learning also sees these numbers.
+- **Trial inventory:** Inventory → "Load sample inventory" adds four sample projects (Chennai and Bangalore, own and
+  partner) with units and charges; "Remove sample inventory" deletes them before go-live.
+
 ## WhatsApp commands
 ```
 Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
@@ -171,5 +189,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 39 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 46 end-to-end tests with a scripted fake model, no API key needed
 ```

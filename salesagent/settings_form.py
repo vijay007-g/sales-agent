@@ -163,6 +163,7 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
     o = raw.get("owner", {})
     bk = raw.get("booking", {})
     msg = raw.get("messaging", {})
+    fin = raw.get("finance", {})
     tz = b.get("timezone", "Asia/Kolkata")
     tzs = TIMEZONES if tz in TIMEZONES else [tz] + TIMEZONES
     top = ""
@@ -179,7 +180,8 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
 {inp("business[languages]", "Languages customers use", ", ".join(b.get("languages") or []), placeholder="English, Tamil, Hindi")}
 {sel("business[timezone]", "Time zone", tz, [(t, t) for t in tzs])}
 {inp("business[currency]", "Currency", b.get("currency", "INR"))}
-{inp("business[assistant_intro]", "How the AI introduces itself", b.get("assistant_intro") or "Saikrupa's assistant",
+{inp("business[assistant_intro]", "How the AI introduces itself",
+     b.get("assistant_intro") or f"{(b.get('name') or 'Our').split()[0]}'s assistant",
      hint="Used in the first message, e.g. \"Hi Ravi, I'm Saikrupa's assistant, working with Anitha\"")}
 </div></div>
 
@@ -215,8 +217,11 @@ spreadsheet upload, builders' commission and contacts.</p></div>
 {days("booking[office_days]", "Office open days", bk.get("office_days", [0, 1, 2, 3, 4, 5]))}
 </div></div>
 
-<div class="card"><h3>Messaging</h3><div class="fields">
+<div class="card"><h3>Messaging & loan illustrations</h3><div class="fields">
 {hours("messaging[quiet_hours]", "No messages to customers between", msg.get("quiet_hours"), ("20:30", "09:00"))}
+{inp("finance[default_rate_pct]", "Home-loan rate for EMI illustrations (%)", fin.get("default_rate_pct", 8.5), hint="Illustrative; banks decide")}
+{inp("finance[default_tenure_years]", "Default loan tenure (years)", fin.get("default_tenure_years", 20), "number")}
+{inp("finance[default_down_payment_pct]", "Default down payment (%)", fin.get("default_down_payment_pct", 20), "number")}
 </div><p><small>Follow-up timing, lead scoring and AI settings: <a href="/settings/advanced">Advanced settings</a>.</small></p></div>
 
 <div class="savebar"><button>Save settings</button><a href="/settings">Discard changes</a></div>
@@ -308,7 +313,7 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
     raw["business"] = {**old.get("business", {}), "name": _s(b, "name"), "website": _s(b, "website"),
                        "languages": _csv(b, "languages") or ["English"], "timezone": _s(b, "timezone") or "Asia/Kolkata",
                        "currency": _s(b, "currency") or "INR",
-                       "assistant_intro": _s(b, "assistant_intro") or "Saikrupa's assistant"}
+                       "assistant_intro": _s(b, "assistant_intro") or f"{(_s(b, 'name') or 'Our').split()[0]}'s assistant"}
     if not raw["business"]["name"]:
         errs.append("Company name is required.")
     o = t.get("owner", {})
@@ -367,4 +372,11 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
 
     msg = t.get("messaging", {})
     raw["messaging"] = {**old.get("messaging", {}), "quiet_hours": _hours(msg, "quiet_hours", ("20:30", "09:00"))}
+    fn = t.get("finance", {})
+    try:
+        raw["finance"] = {"default_rate_pct": float(_s(fn, "default_rate_pct") or 8.5),
+                          "default_tenure_years": float(_s(fn, "default_tenure_years") or 20),
+                          "default_down_payment_pct": float(_s(fn, "default_down_payment_pct") or 20)}
+    except ValueError:
+        errs.append("Loan illustration defaults must be numbers.")
     return raw, errs

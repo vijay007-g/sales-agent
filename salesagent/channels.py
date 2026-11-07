@@ -65,6 +65,32 @@ def send_whatsapp(phone: str, text: str, within_24h_window: bool = True,
         return {"ok": False, "error": str(e)}
 
 
+def send_whatsapp_media(phone: str, url: str, mime: str, caption: str = "", filename: str = "",
+                        phone_number_id: str | None = None, sender: str = "") -> dict:
+    """Send a document (PDF) or image by public link. Media messages are allowed inside the 24-hour window."""
+    if mode() != "live":
+        kind = "IMAGE" if mime.startswith("image/") else "DOCUMENT"
+        return _console(f"WHATSAPP {kind}{' from ' + sender if sender else ''}", phone,
+                        f"[{filename}] {url}" + (f"\n{caption}" if caption else ""))
+    token = env("WHATSAPP_TOKEN")
+    phone_id = phone_number_id or env("WHATSAPP_PHONE_NUMBER_ID")
+    if not token or not phone_id:
+        return {"ok": False, "error": "WhatsApp credentials missing"}
+    if mime.startswith("image/"):
+        body = {"type": "image", "image": {"link": url, "caption": caption[:1024]}}
+    else:
+        body = {"type": "document", "document": {"link": url, "caption": caption[:1024], "filename": filename}}
+    try:
+        r = requests.post(f"https://graph.facebook.com/v21.0/{phone_id}/messages", timeout=30,
+                          json={"messaging_product": "whatsapp", "to": phone.lstrip("+"), **body},
+                          headers={"Authorization": f"Bearer {token}"})
+        if r.status_code >= 300:
+            return {"ok": False, "error": f"WhatsApp {r.status_code}: {r.text[:300]}"}
+        return {"ok": True, "mode": "live"}
+    except requests.RequestException as e:
+        return {"ok": False, "error": str(e)}
+
+
 def send_email(to: str, subject: str, text: str) -> dict:
     if mode() != "live" or not env("SMTP_HOST"):
         return _console("EMAIL", to, f"Subject: {subject}\n\n{text}")

@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from . import channels, db, inventory, leads, pipeline, pricing, team, visits
+from . import channels, db, inventory, leads, pipeline, pricing, sales_kit, team, visits
 from .config import get_settings
 
 MAX_MESSAGES_PER_RUN = 3
@@ -93,6 +93,36 @@ TOOLS: list[dict] = [
             "available unit (number, floor, facing, size, price) and which extras are allowed. Use it before "
             "answering detailed questions or naming a specific unit."),
         "input_schema": _obj({"project": STR}, ["project"]),
+    },
+    {
+        "name": "send_brochure",
+        "description": (
+            "Send the customer the project's brochure, floor plan or photos as WhatsApp attachments (uploaded by the "
+            "team). Use when they ask for details, plans or pictures, or after recommending a project. `caption` is a "
+            "short line you write to go with it."),
+        "input_schema": _obj({
+            "project": STR,
+            "kind": {"type": "string", "enum": ["brochure", "floor_plan", "photo", "price_list", "any"]},
+            "unit_type": {"type": "string", "description": "e.g. 2BHK, to pick the right floor plan"},
+            "caption": STR}, ["project", "kind", "caption"]),
+    },
+    {
+        "name": "send_cost_sheet",
+        "description": (
+            "Send an exact cost sheet for a unit: unit price (list price, or the management-approved price for this "
+            "customer), GST, stamp duty, registration and other charges, and the approximate total. Calculated by "
+            "the system — never type cost figures yourself."),
+        "input_schema": _obj({"project": STR, "unit_no": STR, "unit_type": STR}, ["project"]),
+    },
+    {
+        "name": "send_emi_illustration",
+        "description": (
+            "Send an EMI illustration (loan amount, monthly EMI for a few tenures, total interest) calculated by the "
+            "system for a unit's price, or for a price you pass. Use when the customer is taking a loan or asks "
+            "about monthly payments. Defaults: settings' down payment, interest rate and tenure."),
+        "input_schema": _obj({"project": STR, "unit_no": STR, "unit_type": STR, "price": INT,
+                              "down_payment_pct": {"type": "number"}, "rate_pct": {"type": "number"},
+                              "tenure_years": {"type": "number"}}, []),
     },
     {
         "name": "get_visit_slots",
@@ -388,6 +418,70 @@ def _get_project_details(ctx: ToolContext, a: dict) -> dict:
     return {"ok": True, **facts}
 
 
+def _kit_send(ctx: ToolContext, text: str, media_id: int | None = None) -> dict:
+    lead = db.get_lead(ctx.lead_id)
+    if lead["opted_out"]:
+        return {"ok": False, "error": "Customer opted out."}
+    if ctx.messages_sent >= MAX_MESSAGES_PER_RUN:
+        return {"ok": False, "error": "Message limit for this turn reached. Wait for the customer."}
+    res = team.send_or_draft(ctx.lead_id, text, "whatsapp", "", media_id=media_id)
+    if res.get("ok"):
+        ctx.messages_sent += 1
+    return res
+
+
+def _resolve_unit(ctx: ToolContext, a: dict):
+    p = inventory.get_project(a.get("project", ""))
+    if not p:
+        return None, None, {"ok": False, "error": "Unknown project. Use search_properties."}
+    lead = db.get_lead(ctx.lead_id)
+    unit = inventory.find_unit(p, a.get("unit_type") or lead.get("unit_type") or "", a.get("unit_no") or "",
+                               ctx.lead_id)
+    if not unit:
+        return p, None, {"ok": False, "error": f"No available {a.get('unit_type') or ''} {a.get('unit_no') or ''} in "
+                                               f"{p['name']}. Check get_project_details for unit types."}
+    return p, unit, None
+
+
+def _send_brochure(ctx: ToolContext, a: dict) -> dict:
+    p = inventory.get_project(a.get("project", ""))
+    if not p:
+        return {"ok": False, "error": "Unknown project."}
+    files = sales_kit.find_media(p["id"], a.get("kind", "any"), a.get("unit_type", ""))[:3]
+    if not files:
+        have = sales_kit.media_summary(p["id"])
+        return {"ok": False, "error": f"No {a.get('kind')} uploaded for {p['name']}."
+                                      + (f" Available: {'; '.join(have)}." if have else " Nothing uploaded yet.")
+                                      + " Tell the customer the team will share it, and mention it in a call task."}
+    sent = []
+    for i, m in enumerate(files):
+        res = _kit_send(ctx, (a.get("caption") or "") if i == 0 else "", m["id"])
+        if not res.get("ok"):
+            return {**res, "sent_so_far": sent}
+        sent.append(m["title"])
+    return {"ok": True, "sent": sent}
+
+
+def _send_cost_sheet(ctx: ToolContext, a: dict) -> dict:
+    p, unit, err = _resolve_unit(ctx, a)
+    if err:
+        return err
+    cs = sales_kit.cost_sheet(p, unit, ctx.lead_id)
+    res = _kit_send(ctx, cs["text"])
+    return {**res, "total": pricing.fmt_money(cs["total"]), "unit_price": pricing.fmt_money(cs["price"])}
+
+
+def _send_emi(ctx: ToolContext, a: dict) -> dict:
+    price = a.get("price")
+    if not price:
+        p, unit, err = _resolve_unit(ctx, a)
+        if err:
+            return err
+        price = sales_kit.approved_price(ctx.lead_id, unit)[0]
+    ill = sales_kit.emi_illustration(int(price), a.get("down_payment_pct"), a.get("rate_pct"), a.get("tenure_years"))
+    return {**_kit_send(ctx, ill["text"]), "loan": pricing.fmt_money(ill["loan"])}
+
+
 def _get_visit_slots(ctx: ToolContext, a: dict) -> dict:
     try:
         slots = visits.free_slots(a["project"], a["date"])
@@ -505,6 +599,9 @@ HANDLERS = {
     "set_stage": _set_stage,
     "send_message": _send_message,
     "search_properties": _search_properties,
+    "send_brochure": _send_brochure,
+    "send_cost_sheet": _send_cost_sheet,
+    "send_emi_illustration": _send_emi,
     "get_project_details": _get_project_details,
     "get_visit_slots": _get_visit_slots,
     "book_site_visit": _book_site_visit,

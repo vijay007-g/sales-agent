@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from . import db, inventory, partners
+from . import db, inventory, partners, sales_kit
 from .pricing import fmt_money
 from .settings_form import CSS as FORM_CSS
 from .settings_form import JS as FORM_JS
@@ -87,7 +87,25 @@ registration, and their bank account for customers' booking advance.</small></p>
 <table><tr><th>Builder</th><th></th><th>Commission</th><th>Contact</th><th></th></tr>{brows}</table>
 <a href="/inventory/builder/new"><button class="addbtn">+ Add partner builder</button></a></div>
 {cards or '<div class="card">No projects yet.</div>'}
-<div class="card"><a href="/inventory/project/new"><button>+ Add project</button></a></div>""")
+<div class="card"><a href="/inventory/project/new"><button>+ Add project</button></a></div>
+<div class="card"><h3>Trial inventory</h3><p><small>Four sample projects in Chennai and Bangalore (one own, three from two
+fictional partner builders) with units, prices and charges, so you can test matching, cost sheets, client
+registration and commissions. Sample registrations and site visits go to your own WhatsApp number. Remove them
+before going live.</small></p>
+<form method="post" action="/inventory/sample" style="display:flex;gap:8px">
+<button name="action" value="load" class="grey">Load sample inventory</button>
+<button name="action" value="remove" class="red" onclick="return confirm('Remove all sample projects and builders?')">Remove sample inventory</button>
+</form></div>""")
+
+
+@router.post("/inventory/sample")
+async def sample_inventory(request: Request, _: str = Depends(auth)):
+    f = await request.form()
+    if f.get("action") == "remove":
+        inventory.remove_sample()
+    else:
+        inventory.load_sample()
+    return RedirectResponse("/inventory", status_code=303)
 
 
 # ============================================================ builders
@@ -184,6 +202,12 @@ def _project_form(p: dict) -> str:
 {inp("max_visits_per_day", "Max visits per day", p.get("max_visits_per_day") or 6, "number")}
 {days("visit_days", "Visit days", vd)}
 </div><p><small>Leave empty if your own site team from Settings covers this project.</small></p></div>
+<div class="card"><h3>Charges for cost sheets <small>the AI sends exact cost sheets calculated from these</small></h3><div class="fields">
+{inp("gst_pct", "GST %", p.get("gst_pct"), hint="e.g. 5 for under-construction, 0 for ready-to-move")}
+{inp("stamp_duty_pct", "Stamp duty %", p.get("stamp_duty_pct"), hint="As applicable in the state")}
+{inp("registration_pct", "Registration %", p.get("registration_pct"))}
+{area("other_charges", "Other charges", p.get("other_charges") or "", "One per line as  Label: amount  e.g.  Car parking: 3L")}
+</div><p><small>Leave a box empty if unknown — the cost sheet will say it will be confirmed.</small></p></div>
 <div class="card"><h3>Commission override <small>only if this project differs from the builder's usual terms</small></h3><div class="fields">
 {sel("commission_type", "Type", p.get("commission_type") or "", [("", "Use builder's terms"), ("pct", "% of deal value"), ("fixed", "Fixed amount")])}
 {inp("commission_value", "Commission (% or ₹)", p.get("commission_value"))}
@@ -211,6 +235,7 @@ def project_page(pid: str, msg: str = "", _: str = Depends(auth)):
 <button class="small">Save</button><button class="small red" name="delete" value="1" onclick="return confirm('Delete this unit?')">Delete</button></form></td></tr>"""
     body = f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
 <h2>{escape(p['name'])} <small>{escape(p['city'] or '')} · {escape(p['builder'])}</small></h2>
+{_landing_box(p)}
 <div class="card"><h3>Units</h3><p><small>One row per flat (with unit number), or one row per type with a count
 ("2BHK × 12") if the builder only shares numbers. Booked units come off automatically when the advance is paid.</small></p>
 <table class="units"><tr><th>Unit</th><th>Type</th><th>Floor</th><th>Facing</th><th>Sq ft</th><th>List</th><th>Floor price</th><th>Count · status · prices</th></tr>
@@ -228,9 +253,60 @@ def project_page(pid: str, msg: str = "", _: str = Depends(auth)):
 Replace all currently available units</label> <button class="grey">Upload CSV</button></form>
 <small>Save your Excel sheet as CSV. Columns: unit_no, unit_type, floor, facing, size_sqft, carpet_sqft, list_price,
 floor_price, quantity, status. Prices like 7500000, 75L or 1.02cr. <a href="/inventory/units-template.csv">Download template</a></small></div>
+{_media_card(p)}
 <form method="post" action="/inventory/project/{p['id']}">{_project_form(p)}
 <div class="savebar"><button>Save project</button><a href="/inventory">Back</a></div></form>"""
     return page(p["name"], body)
+
+
+def _landing_box(p: dict) -> str:
+    from .team import base_url
+    url = f"{base_url()}/p/{inventory.ensure_slug(p['id'])}"
+    return (f'<div class="notice">Landing page: <a href="{escape(url)}" target="_blank">{escape(url)}</a><br><small>'
+            f'Use it as the ad destination. Add <code>?src=meta_ads&amp;c=C3-V2</code> (source and campaign code) so '
+            f'every lead is traced to the ad that produced it.</small></div>')
+
+
+def _media_card(p: dict) -> str:
+    files = db.q("SELECT * FROM media WHERE project_id = ? ORDER BY kind, id", (p["id"],))
+    rows = "".join(f"""<tr><td>{escape(m['kind'])}</td><td><a href="{escape(sales_kit.media_url(m))}" target="_blank">{escape(m['title'])}</a></td>
+<td>{escape(m['unit_type'] or 'all')}</td><td>{(m['size'] or 0) // 1024} KB</td>
+<td><form method="post" action="/inventory/media/{m['id']}/delete" onsubmit="return confirm('Delete this file?')">
+<button class="small red">Delete</button></form></td></tr>""" for m in files)
+    kinds = "".join(f'<option value="{k}">{k.replace("_", " ")}</option>' for k in sales_kit.KINDS)
+    return f"""<div class="card"><h3>Brochures, floor plans & photos <small>the AI sends these on WhatsApp</small></h3>
+<table>{rows or '<tr><td>Nothing uploaded yet.</td></tr>'}</table>
+<form method="post" action="/inventory/project/{p['id']}/media" enctype="multipart/form-data" style="margin-top:10px">
+<div class="fields"><label class="f"><span>File (PDF, JPG, PNG)</span><input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png,.webp" required></label>
+<label class="f"><span>Kind</span><select name="kind">{kinds}</select></label>
+{inp("title", "Title", "", placeholder="Brochure / 2BHK floor plan")}
+{inp("unit_type", "For unit type (optional)", "", placeholder="2BHK")}</div><button>Upload</button></form>
+<small>PDFs up to 16 MB, images up to 5 MB (WhatsApp limits).</small></div>"""
+
+
+@router.post("/inventory/project/{pid}/media")
+async def media_upload(pid: int, file: UploadFile = File(...), kind: str = Form("other"), title: str = Form(""),
+                       unit_type: str = Form(""), _: str = Depends(auth)):
+    res = sales_kit.save_media(pid, kind, title.strip(), file.filename or "", await file.read(), unit_type.strip())
+    msg = "Uploaded." if res.get("ok") else f"Not uploaded: {res['error']}"
+    return RedirectResponse(f"/inventory/project/{pid}?msg={msg}", status_code=303)
+
+
+@router.post("/inventory/media/{mid}/delete")
+def media_delete(mid: int, _: str = Depends(auth)):
+    m = db.q1("SELECT project_id FROM media WHERE id = ?", (mid,))
+    sales_kit.delete_media(mid)
+    return RedirectResponse(f"/inventory/project/{m['project_id'] if m else ''}?msg=Deleted.", status_code=303)
+
+
+@router.get("/m/{token}/{filename}")
+def public_media(token: str, filename: str):
+    """Public (unguessable) link so WhatsApp can fetch the file."""
+    from fastapi.responses import FileResponse
+    m = db.q1("SELECT * FROM media WHERE token = ? AND filename = ?", (token, filename))
+    if not m:
+        raise HTTPException(404)
+    return FileResponse(m["path"], media_type=m["mime"], filename=m["filename"])
 
 
 @router.post("/inventory/project/{pid}")
@@ -248,6 +324,8 @@ async def project_save(pid: str, request: Request, _: str = Depends(auth)):
             "site_host_phone": _phone(g("site_host_phone")),
             "visit_hours": f"{g('visit_from') or '10:00'}-{g('visit_to') or '18:00'}",
             "visit_days": ",".join(map(str, vdays or range(7))), "max_visits_per_day": int(_num(g("max_visits_per_day")) or 6),
+            "gst_pct": _num(g("gst_pct")), "stamp_duty_pct": _num(g("stamp_duty_pct")),
+            "registration_pct": _num(g("registration_pct")), "other_charges": g("other_charges"),
             "commission_type": g("commission_type") or None,
             "commission_value": (_num(g("commission_value")) if g("commission_type") == "pct"
                                  else (_amt(g("commission_value")) if g("commission_value") else None)),
@@ -261,6 +339,7 @@ async def project_save(pid: str, request: Request, _: str = Depends(auth)):
         new_id = int(pid)
     else:
         new_id = db.insert("inv_projects", {**data, "created_at": db.now_iso()})
+    inventory.ensure_slug(new_id)
     db.audit(None, "owner", "project_saved", data["name"])
     return RedirectResponse(f"/inventory/project/{new_id}?msg=Saved.", status_code=303)
 

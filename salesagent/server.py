@@ -39,7 +39,9 @@ app = FastAPI(title="AI Sales Agent", lifespan=lifespan)
 
 def _include_routers() -> None:
     from .web_inventory import router as inventory_router
+    from .web_public import router as public_router
     app.include_router(inventory_router)
+    app.include_router(public_router)
 
 
 def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
@@ -281,15 +283,26 @@ def decide_booking(booking_id: int, decision: str = Form(...), note: str = Form(
 
 
 @app.get("/leads", response_class=HTMLResponse)
-def lead_list(stage: str = "", _: str = Depends(owner_auth)):
-    rows = db.q("SELECT * FROM leads " + ("WHERE stage = ? " if stage else "") +
-                "ORDER BY score DESC, id DESC LIMIT 500", (stage,) if stage else ())
+def lead_list(stage: str = "", city: str = "", _: str = Depends(owner_auth)):
+    where, args = [], []
+    if stage:
+        where.append("stage = ?")
+        args.append(stage)
+    if city:
+        where.append("lower(city) = lower(?)")
+        args.append(city)
+    rows = db.q("SELECT * FROM leads " + (("WHERE " + " AND ".join(where) + " ") if where else "") +
+                "ORDER BY score DESC, id DESC LIMIT 500", tuple(args))
     trs = "".join(f"""<tr><td><a href="/leads/{r['id']}">#{r['id']} {escape(r['name'] or '(no name)')}</a></td>
 <td>{escape(r['phone'] or r['email'] or '')}</td><td>{escape(r['source'] or '')}</td><td>{escape(r['rm_name'] or '')}</td><td>{r['stage']}</td><td>{r['score']}</td>
 <td>{_temp(r['temperature'])}</td><td>{escape(r['unit_type'] or '')} {pricing.fmt_money(r['budget_max'])}</td>
 <td>{escape((r['next_followup_at'] or '')[:16])}</td></tr>""" for r in rows)
     opts = "".join(f'<option {"selected" if s == stage else ""}>{s}</option>' for s in pipeline.STAGES)
-    body = f"""<div class="card"><form>Stage <select name="stage"><option value="">all</option>{opts}</select> <button>Filter</button></form></div>
+    from . import inventory
+    copts = "".join(f'<option {"selected" if c.lower() == city.lower() else ""}>{escape(c)}</option>'
+                    for c in inventory.cities())
+    body = f"""<div class="card"><form>Stage <select name="stage"><option value="">all</option>{opts}</select>
+City <select name="city"><option value="">all</option>{copts}</select> <button>Filter</button></form></div>
 <div class="card"><h3>Add a lead (walk-in, call, referral)</h3><form method="post" action="/leads/new">
 <input name="name" placeholder="Name" required> <input name="phone" placeholder="Phone" required> <input name="email" placeholder="Email">
 <input name="city" placeholder="City (Chennai / Bangalore)">
@@ -509,19 +522,61 @@ def approve_campaign(cid: int, _: str = Depends(owner_auth)):
 
 @app.get("/reports", response_class=HTMLResponse)
 def reports(_: str = Depends(owner_auth)):
-    def table(rep):
-        return "".join(f"<tr><td>{escape(k)}</td><td>{v['total']}</td><td>{v['visits']} ({v['visit_rate']}%)</td>"
-                       f"<td>{v['booked']} ({v['booking_rate']}%)</td></tr>" for k, v in sorted(rep.items()))
-    trs = table(marketing.funnel_report("source"))
-    ctrs = table(marketing.funnel_report("campaign"))
+    def money(v):
+        return pricing.fmt_money(v) if v else "—"
+
+    def econ(rows, label):
+        trs = "".join(f"<tr><td>{escape(r['month'])}</td><td>{escape(r['key'])}</td><td>{money(r['spend'])}</td>"
+                      f"<td>{r['leads']}</td><td>{r['qualified']}</td><td>{r['visited']}</td><td>{r['booked']}</td>"
+                      f"<td>{money(r['cpl'])}</td><td>{money(r['cpq'])}</td><td>{money(r['cpv'])}</td><td>{money(r['cpb'])}</td>"
+                      f"<td>{money(r['commission'])}</td></tr>" for r in rows)
+        return (f'<table><tr><th>Month</th><th>{label}</th><th>Spend</th><th>Leads</th><th>Qualified</th><th>Visited</th>'
+                f'<th>Booked</th><th>Per lead</th><th>Per qualified</th><th>Per visit</th><th>Per booking</th>'
+                f'<th>Commission</th></tr>{trs or "<tr><td colspan=12>No data yet.</td></tr>"}</table>')
+
+    spends = db.q("SELECT * FROM ad_spend ORDER BY month DESC, id DESC LIMIT 60")
+    srows = "".join(f"<tr><td>{escape(x['month'])}</td><td>{escape(x['source'] or '')}</td><td>{escape(x['campaign'] or '')}</td>"
+                    f"<td>{escape(x['city'] or '')}</td><td>{pricing.fmt_money(x['amount'])}</td>"
+                    f"<td><form method='post' action='/reports/spend/{x['id']}/delete'><button class='small red'>Delete</button>"
+                    f"</form></td></tr>" for x in spends)
+    month = get_settings().now().strftime("%Y-%m")
+    sources = "".join(f"<option>{x}</option>" for x in ("meta_ads", "google_ads", "portal", "referral", "website",
+                                                        "walk_in", "other"))
     u = db.q1("SELECT COUNT(*) runs, SUM(input_tokens) i, SUM(output_tokens) o, SUM(cache_read) cr, "
               "SUM(cache_write) cw FROM usage") or {}
     cost = ((u.get("i") or 0) * 4 + (u.get("o") or 0) * 20 + (u.get("cr") or 0) * 0.2 + (u.get("cw") or 0) * 5) / 1e6
-    return page("Reports", f"""<div class="card"><h3>Where good leads come from</h3><table><tr><th>Source</th><th>Leads</th>
-<th>Reached site visit</th><th>Booked</th></tr>{trs}</table></div>
-<div class="card"><h3>By campaign / ad variant</h3><table><tr><th>Campaign code</th><th>Leads</th>
-<th>Reached site visit</th><th>Booked</th></tr>{ctrs}</table></div>
+    return page("Reports", f"""<div class="card"><h3>Marketing spend</h3>
+<p><small>Enter what you spent per channel each month (and per campaign code if you track ads individually). The tables
+below turn it into cost per lead, per qualified lead, per site visit and per booking — so you can increase spend only
+where bookings justify it.</small></p>
+<form method="post" action="/reports/spend" style="display:flex;flex-wrap:wrap;gap:8px;align-items:end">
+<label>Month<br><input type="month" name="month" value="{month}"></label>
+<label>Channel<br><select name="source">{sources}</select></label>
+<label>Campaign code (optional)<br><input name="campaign" placeholder="C3-V2"></label>
+<label>City (optional)<br><input name="city" placeholder="Chennai"></label>
+<label>Amount<br><input name="amount" placeholder="1.5L" required></label><button>Add spend</button></form>
+<table style="margin-top:10px"><tr><th>Month</th><th>Channel</th><th>Campaign</th><th>City</th><th>Amount</th><th></th></tr>
+{srows or '<tr><td colspan=6>No spend entered yet.</td></tr>'}</table></div>
+<div class="card"><h3>Unit economics by channel</h3>{econ(marketing.spend_report("source"), "Channel")}</div>
+<div class="card"><h3>By campaign / ad variant</h3>{econ(marketing.spend_report("campaign"), "Campaign")}</div>
 <div class="card"><h3>AI usage</h3>Model calls: {u.get('runs') or 0} · approx. cost ${cost:.2f} (estimate at list prices)</div>""")
+
+
+@app.post("/reports/spend")
+def add_spend(month: str = Form(...), source: str = Form(...), campaign: str = Form(""), city: str = Form(""),
+              amount: str = Form(...), _: str = Depends(owner_auth)):
+    amt = events.parse_amount(amount) if amount else None
+    if not amt or len(month) != 7:
+        raise HTTPException(400, "Enter a month and an amount like 150000 or 1.5L")
+    db.insert("ad_spend", {"month": month, "source": source, "campaign": campaign.strip(), "city": city.strip().title(),
+                           "amount": amt, "created_at": db.now_iso()})
+    return RedirectResponse("/reports", status_code=303)
+
+
+@app.post("/reports/spend/{sid}/delete")
+def delete_spend(sid: int, _: str = Depends(owner_auth)):
+    db.q("DELETE FROM ad_spend WHERE id = ?", (sid,))
+    return RedirectResponse("/reports", status_code=303)
 
 
 @app.post("/drafts/{draft_id}")

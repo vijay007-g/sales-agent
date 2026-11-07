@@ -132,3 +132,54 @@ def funnel_report(by: str = "source") -> dict:
         v["visit_rate"] = round(v["visits"] / v["total"] * 100, 1) if v["total"] else 0
         v["booking_rate"] = round(v["booked"] / v["total"] * 100, 1) if v["total"] else 0
     return report
+
+
+# ------------------------------------------------------------------ spend & unit economics
+
+QUALIFIED_PLUS = {"qualified", "visit_scheduled", "visit_done", "negotiation", "booking_pending", "payment_pending",
+                  "booked"}
+VISITED_PLUS = {"visit_done", "negotiation", "booking_pending", "payment_pending", "booked"}
+
+
+def _reached(lead_ids: list[int]) -> dict[int, set]:
+    """Every stage each lead has ever been in (from the audit log), so lost leads still count as visited etc."""
+    out: dict[int, set] = {i: set() for i in lead_ids}
+    if not lead_ids:
+        return out
+    marks = ",".join("?" for _ in lead_ids)
+    for r in db.q(f"SELECT lead_id, detail FROM audit WHERE action = 'stage' AND lead_id IN ({marks})", tuple(lead_ids)):
+        try:
+            out[r["lead_id"]].add(json.loads(r["detail"]).get("to"))
+        except (ValueError, AttributeError):
+            pass
+    for r in db.q(f"SELECT id, stage FROM leads WHERE id IN ({marks})", tuple(lead_ids)):
+        out[r["id"]].add(r["stage"])
+    return out
+
+
+def spend_report(by: str = "source") -> list[dict]:
+    """Per month and source (or campaign): spend, leads, qualified, visited, bookings, commission, and costs per
+    lead / qualified lead / visit / booking."""
+    col = "campaign" if by == "campaign" else "source"
+    spend: dict[tuple, int] = {}
+    for r in db.q(f"SELECT month, {col} k, SUM(amount) amt FROM ad_spend WHERE {col} IS NOT NULL AND {col} != '' "
+                  f"GROUP BY month, {col}"):
+        spend[(r["month"], r["k"])] = r["amt"] or 0
+    leads_by: dict[tuple, list[int]] = {}
+    for r in db.q(f"SELECT id, substr(created_at,1,7) month, {col} k FROM leads WHERE campaign IS NOT 'test'"):
+        leads_by.setdefault((r["month"], r["k"] or "(none)"), []).append(r["id"])
+    keys = sorted(set(spend) | set(leads_by), reverse=True)
+    comm = {r["lead_id"]: r["amount"] or 0 for r in db.q("SELECT lead_id, SUM(amount) amount FROM commissions GROUP BY lead_id")}
+    out = []
+    for key in keys:
+        ids = leads_by.get(key, [])
+        reached = _reached(ids)
+        q = sum(1 for i in ids if reached[i] & QUALIFIED_PLUS)
+        v = sum(1 for i in ids if reached[i] & VISITED_PLUS)
+        b = sum(1 for i in ids if "booked" in reached[i])
+        amt = spend.get(key, 0)
+        per = lambda n: int(amt / n) if amt and n else None  # noqa: E731
+        out.append({"month": key[0], "key": key[1], "spend": amt, "leads": len(ids), "qualified": q, "visited": v,
+                    "booked": b, "commission": sum(comm.get(i, 0) for i in ids), "cpl": per(len(ids)),
+                    "cpq": per(q), "cpv": per(v), "cpb": per(b)})
+    return out

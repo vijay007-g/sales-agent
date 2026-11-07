@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS leads (
     rm_name TEXT,
     strategy TEXT,
     city TEXT,
+    consent_at TEXT, consent_text TEXT, consent_source TEXT,
     created_at TEXT, updated_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone) WHERE phone IS NOT NULL AND phone != '';
@@ -92,7 +93,7 @@ CREATE TABLE IF NOT EXISTS call_tasks (
 
 CREATE TABLE IF NOT EXISTS drafts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER, rm_name TEXT, channel TEXT, subject TEXT, text TEXT,
+    lead_id INTEGER, rm_name TEXT, channel TEXT, subject TEXT, text TEXT, media_id INTEGER,
     status TEXT DEFAULT 'pending',
     created_at TEXT, decided_at TEXT
 );
@@ -105,7 +106,7 @@ CREATE TABLE IF NOT EXISTS builders (
     payment_terms_days INTEGER DEFAULT 45, registration_validity_days INTEGER DEFAULT 90,
     bank_payee TEXT, bank_name TEXT, bank_account TEXT, bank_ifsc TEXT, upi_id TEXT,
     verify_phone TEXT, office_address TEXT,
-    notes TEXT, active INTEGER DEFAULT 1, created_at TEXT
+    notes TEXT, is_sample INTEGER DEFAULT 0, active INTEGER DEFAULT 1, created_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS inv_projects (
@@ -116,6 +117,8 @@ CREATE TABLE IF NOT EXISTS inv_projects (
     site_host_name TEXT, site_host_phone TEXT, visit_hours TEXT DEFAULT '10:00-18:00',
     visit_days TEXT DEFAULT '0,1,2,3,4,5,6', max_visits_per_day INTEGER DEFAULT 6,
     commission_type TEXT, commission_value REAL,
+    slug TEXT, gst_pct REAL, stamp_duty_pct REAL, registration_pct REAL, other_charges TEXT,
+    is_sample INTEGER DEFAULT 0,
     active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT
 );
 
@@ -143,6 +146,17 @@ CREATE TABLE IF NOT EXISTS commissions (
     status TEXT DEFAULT 'earned',
     invoice_no TEXT, invoiced_at TEXT, due_at TEXT,
     collected_amount INTEGER, collected_at TEXT, notes TEXT, created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS media (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER, unit_type TEXT, kind TEXT, title TEXT,
+    filename TEXT, path TEXT, token TEXT, mime TEXT, size INTEGER, created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS ad_spend (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    month TEXT, source TEXT, campaign TEXT, city TEXT, amount INTEGER, notes TEXT, created_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS insights (

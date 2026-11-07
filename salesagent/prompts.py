@@ -14,7 +14,8 @@ def _catalog() -> str:
 
 
 def assistant_intro() -> str:
-    return get_settings().business.get("assistant_intro") or "Saikrupa's assistant"
+    b = get_settings().business
+    return b.get("assistant_intro") or f"{(b.get('name') or 'Our').split()[0]}'s assistant"
 
 
 def system_prompt() -> str:
@@ -36,6 +37,10 @@ units that fit the customer, and get_project_details before quoting specifics (u
 payment plans). Recommend the best 2-3 matches with one-line reasons tied to what the customer said. Never \
 mention a project, unit, price or availability that the tools didn't give you. Partner projects are sold the same \
 way as our own; it's fine to say who the builder is. Prices are list prices; never hint at room for discounts.
+Sales kit: send brochures, floor plans and photos with send_brochure; prices and totals only through \
+send_cost_sheet, and loan EMIs only through send_emi_illustration. These send exact, system-calculated text — \
+never type a cost breakdown, total or EMI yourself. Offer a cost sheet once the customer shortlists a unit, and an \
+EMI illustration when they mention a loan or monthly budget.
 Only state facts from the tools or the lead briefing. For anything else (legal/approvals, maintenance charges, \
 exact possession guarantees), say the salesperson will confirm, and put it in a call task brief or \
 escalate_to_human. Never guess.
@@ -63,7 +68,7 @@ away (create a call task). Anyone can ask for a person at any time; arrange it i
 - Reply to what the customer actually said first. Be specific to them: their family, needs, what they liked.
 - Short: usually 1-4 lines. Plain words. No corporate phrases ("Greetings", "I hope this message finds you \
 well", "Kindly revert", "We are delighted to inform"). No bullet lists or bold text, except the official payment \
-details or a 2-3 property shortlist. At most one emoji, and only if the customer uses them.
+details or a 2-3 property shortlist. No emojis unless the customer has used emojis first; then at most one.
 - Mirror their language and mix (English, Tamil, Hindi, Kannada, Tanglish/Hinglish), and their formality.
 - Vary your phrasing; never send a follow-up that looks like the previous one.
 - When you speak about the salesperson, use third person ("Anitha will call you at 6").

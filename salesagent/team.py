@@ -58,7 +58,7 @@ def within_24h(lead: dict) -> bool:
 # ------------------------- messages to customers -------------------------
 
 def deliver(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "",
-            author: str = "agent") -> dict:
+            author: str = "agent", media_id: int | None = None) -> dict:
     """Actually send a message to the customer from the RM's number, and log it."""
     lead = db.get_lead(lead_id)
     if lead["opted_out"]:
@@ -66,6 +66,21 @@ def deliver(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "
     rm = rm_for(lead)
     if channel == "whatsapp" and not lead["phone"]:
         channel = "email"
+    if media_id:
+        from .sales_kit import media_url
+        m = db.q1("SELECT * FROM media WHERE id = ?", (media_id,))
+        if not m:
+            return {"ok": False, "error": "Attachment no longer exists."}
+        url = media_url(m)
+        if channel == "email":
+            res = channels.send_email(lead["email"], subject or m["title"], f"{text}\n\n{m['title']}: {url}")
+        else:
+            res = channels.send_whatsapp_media(lead["phone"], url, m["mime"], text, m["filename"],
+                                               phone_number_id=rm.get("whatsapp_phone_number_id") or None,
+                                               sender=rm["name"])
+        if res.get("ok"):
+            db.log_interaction(lead_id, "out", channel, author, f"[sent {m['kind']}: {m['title']}] {text}".strip())
+        return res
     if channel == "email":
         if not lead["email"]:
             return {"ok": False, "error": "No email on file. Use WhatsApp."}
@@ -80,21 +95,30 @@ def deliver(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "
     return res
 
 
-def send_or_draft(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "") -> dict:
+def send_or_draft(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "",
+                  media_id: int | None = None) -> dict:
     """AI messages: sent directly in 'auto' mode, or queued for the RM to approve in 'review' mode."""
     lead = db.get_lead(lead_id)
     rm = rm_for(lead)
     if rm.get("message_mode", "auto") != "review":
-        return deliver(lead_id, text, channel, subject)
+        return deliver(lead_id, text, channel, subject, media_id=media_id)
     did = db.insert("drafts", {"lead_id": lead_id, "rm_name": rm["name"], "channel": channel,
-                               "subject": subject, "text": text, "status": "pending",
+                               "subject": subject, "text": text, "status": "pending", "media_id": media_id,
                                "created_at": db.now_iso()})
     channels.notify_staff(rm["phone"], (
-        f"DRAFT D{did} for {lead['name'] or lead['phone']} (#{lead_id}):\n\n{text}\n\n"
+        f"DRAFT D{did} for {lead['name'] or lead['phone']} (#{lead_id}):\n\n{text}\n"
+        f"{_attachment_note(media_id)}\n"
         f"Reply  SEND D{did}   or   EDIT D{did} <your version>   or   DROP D{did}"))
     db.audit(lead_id, "agent", "draft", {"draft_id": did})
     return {"ok": True, "status": "drafted_for_review", "draft_id": did,
             "message": f"{rm['name']} reviews and sends it. Treat it as sent."}
+
+
+def _attachment_note(media_id: int | None) -> str:
+    if not media_id:
+        return ""
+    m = db.q1("SELECT kind, title FROM media WHERE id = ?", (media_id,))
+    return f"📎 with attachment: {m['title']} ({m['kind']})\n" if m else ""
 
 
 def approve_draft(draft_id: int, edited_text: str | None = None, actor: str = "rm") -> str:
@@ -105,7 +129,7 @@ def approve_draft(draft_id: int, edited_text: str | None = None, actor: str = "r
         edited_text = None   # only whitespace differs: not a real edit
     text = (edited_text or d["text"]).strip()
     res = deliver(d["lead_id"], text, d["channel"], d["subject"] or "",
-                  author="agent" if not edited_text else "rm")
+                  author="agent" if not edited_text else "rm", media_id=d.get("media_id"))
     if not res.get("ok"):
         return f"Could not send D{draft_id}: {res.get('error')}"
     db.update("drafts", draft_id, {"status": "edited" if edited_text else "sent", "text": text,

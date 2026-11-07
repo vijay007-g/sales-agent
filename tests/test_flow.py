@@ -649,10 +649,10 @@ HOST_PHONE = "+919811100001"
 
 def _partner_setup():
     from salesagent import inventory
-    bid = db.insert("builders", {"name": "Prestige Partner", "is_own": 0, "contact_name": "Suresh",
+    bid = db.insert("builders", {"name": "Lakeside Partner", "is_own": 0, "contact_name": "Suresh",
                                  "contact_phone": BUILDER_PHONE, "contact_email": "crm@partner.example",
                                  "commission_type": "pct", "commission_value": 2, "payment_terms_days": 30,
-                                 "registration_validity_days": 90, "bank_payee": "Prestige Partner Pvt Ltd",
+                                 "registration_validity_days": 90, "bank_payee": "Lakeside Partner Pvt Ltd",
                                  "bank_name": "ICICI", "bank_account": "999888777", "bank_ifsc": "ICIC0000999",
                                  "verify_phone": "+918000000000", "created_at": db.now_iso()})
     pid = db.insert("inv_projects", {"builder_id": bid, "name": "Lakeview Heights", "city": "Bangalore",
@@ -691,7 +691,7 @@ def test_matchmaker_search_across_cities_without_floor_prices(fresh):
     assert all(m["list_price"] <= 9500000 * 1.1 for m in out["matches"])
     assert "8600000" not in json.dumps(out) and "floor_price" not in json.dumps(out)
     details = json.loads(tools.run_tool(ctx, "get_project_details", {"project": "lakeview"})[0])
-    assert details["builder"] == "Prestige Partner" and len(details["available_units"]) == 3
+    assert details["builder"] == "Lakeside Partner" and len(details["available_units"]) == 3
     assert "8200000" not in json.dumps(details)
     none = json.loads(tools.run_tool(ctx, "search_properties", {"city": "Pune"})[0])
     assert none["matches"] == [] and "Bangalore" in none["cities_we_cover"]
@@ -769,7 +769,7 @@ def test_partner_booking_pays_builder_and_records_commission(fresh):
     events.staff_command(owner_phone(), f"CONFIRM B{booking['id']}")
     assert db.q1("SELECT status FROM units WHERE id = ?", (unit["id"],))["status"] == "held"
     pay_msgs = [t for t in to(fresh, lead["phone"]) if "A/c no" in t]
-    assert pay_msgs and "999888777" in pay_msgs[-1] and "Prestige Partner" in pay_msgs[-1]
+    assert pay_msgs and "999888777" in pay_msgs[-1] and "Lakeside Partner" in pay_msgs[-1]
     assert get_settings().booking["account_number"] not in pay_msgs[-1]          # not our own account
     # held unit is no longer offered to other buyers
     other = mk_lead(name="Other", phone="9123456789", city="Bangalore")
@@ -839,7 +839,7 @@ def test_inventory_pages(monkeypatch):
     a = ("owner", "pw")
     with TestClient(app) as c:
         home = c.get("/inventory", auth=a).text
-        assert "Bangalore" in home and "Chennai" in home and "Prestige Partner" in home
+        assert "Bangalore" in home and "Chennai" in home and "Lakeside Partner" in home
         assert "Lakeview Heights" in c.get(f"/inventory/project/{p['id']}", auth=a).text
         assert c.get("/inventory/builder/new", auth=a).status_code == 200
         r = c.post("/inventory/builder/new", auth=a, data={"name": "Brigade Partner", "commission_type": "pct",
@@ -864,3 +864,177 @@ def test_inventory_pages(monkeypatch):
         assert "Commission summary" in c.get("/commissions", auth=a).text
         assert "Client registrations" in c.get("/registrations", auth=a).text
         assert "unit_no,unit_type" in c.get("/inventory/units-template.csv", auth=a).text
+
+
+# ------------------------------------------------------------------ sales kit, landing pages, spend, sample inventory
+
+PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d4948445200000001000000010806000000"
+                    "1f15c4890000000d49444154789c6360000002000100e221bc330000000049454e44ae426082")
+
+
+def test_sample_inventory_load_and_remove():
+    from salesagent import inventory
+    assert inventory.load_sample() == 4 and inventory.load_sample() == 0
+    assert {"Chennai", "Bangalore"} <= set(inventory.cities())
+    blr = inventory.search(city="Bangalore", budget_max=10000000)
+    assert blr and all(m["city"] == "Bangalore" for m in blr)
+    p = inventory.get_project("Whitefield Skyline (sample)")
+    assert not p["is_own"] and p["slug"] == "whitefield-skyline-sample"
+    assert inventory.remove_sample() == {"removed": 4, "paused": 0}
+    assert not db.q1("SELECT id FROM builders WHERE is_sample = 1")
+    assert inventory.get_project("Sunrise Meadows")           # real data untouched
+
+
+def test_brochure_cost_sheet_and_emi(fresh, monkeypatch):
+    from salesagent import inventory, sales_kit
+    inventory.load_sample()
+    p = inventory.get_project("Porur Greens (sample)")
+    assert sales_kit.save_media(p["id"], "brochure", "Porur Greens brochure", "brochure.pdf", PDF)["ok"]
+    assert sales_kit.save_media(p["id"], "floor_plan", "2BHK plan", "2bhk.png", PNG, "2BHK")["ok"]
+    assert not sales_kit.save_media(p["id"], "other", "x", "virus.exe", b"MZ")["ok"]
+    lead = mk_lead(city="Chennai")
+    ctx = tools.ToolContext(lead_id=lead["id"], event="t")
+    out, err = tools.run_tool(ctx, "send_brochure", {"project": "Porur Greens", "kind": "floor_plan",
+                                                     "unit_type": "2BHK", "caption": "Here's the 2BHK plan"})
+    assert not err and "2BHK plan" in out
+    sent = to(fresh, lead["phone"])
+    assert any("[2bhk.png] http" in t and "/m/" in t and "Here's the 2BHK plan" in t for t in sent)
+    assert "sent floor_plan: 2BHK plan" in db.q1("SELECT content FROM interactions WHERE lead_id = ? ORDER BY id DESC",
+                                                (lead["id"],))["content"]
+    out, err = tools.run_tool(ctx, "send_brochure", {"project": "Whitefield Skyline", "kind": "brochure", "caption": "x"})
+    assert err and "Nothing uploaded yet" in out
+    # cost sheet: list price + GST 5% + stamp 7% + reg 2% + parking 3L + corpus 1L for T1-201 (78L)
+    out, err = tools.run_tool(ctx, "send_cost_sheet", {"project": "Porur Greens", "unit_no": "T1-201"})
+    assert not err
+    sheet = to(fresh, lead["phone"])[-1]
+    assert "Unit price: ₹78.00 L" in sheet and "GST (5%): ₹3.90 L" in sheet and "Stamp duty (7%): ₹5.46 L" in sheet
+    assert "Car parking: ₹3.00 L" in sheet and "Approx. total: ₹92.92 L" in sheet and "Indicative only" in sheet
+    assert "73320" not in sheet and "floor" not in sheet.lower()          # never the floor price
+    # an approved offer for this lead changes the unit price used
+    unit = db.q1("SELECT * FROM units WHERE unit_no = 'T1-201'")
+    db.insert("offers", {"lead_id": lead["id"], "unit_id": unit["id"], "project": p["name"], "unit_type": "2BHK",
+                         "list_price": 7800000, "offered_price": 7600000, "status": "approved"})
+    tools.run_tool(ctx, "send_cost_sheet", {"project": "Porur Greens", "unit_no": "T1-201"})
+    assert "Unit price (your approved price): ₹76.00 L" in to(fresh, lead["phone"])[-1]
+    ctx2 = tools.ToolContext(lead_id=lead["id"], event="t")
+    out, err = tools.run_tool(ctx2, "send_emi_illustration", {"price": 9200000})
+    emi_text = to(fresh, lead["phone"])[-1]
+    assert "Loan: ₹73.60 L at 8.5% p.a." in emi_text and "20 years: about ₹63,872/month" in emi_text
+    assert "Illustrative only" in emi_text
+    assert sales_kit.emi(7360000, 8.5, 20) == 63872
+
+
+def test_attachment_goes_through_review_then_sends(fresh, monkeypatch):
+    from salesagent import inventory, sales_kit
+    monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
+    inventory.load_sample()
+    p = inventory.get_project("Porur Greens (sample)")
+    sales_kit.save_media(p["id"], "brochure", "Porur brochure", "b.pdf", PDF)
+    lead = mk_lead()
+    tools.run_tool(tools.ToolContext(lead["id"], "t"), "send_brochure",
+                   {"project": "Porur Greens", "kind": "brochure", "caption": "Brochure attached"})
+    assert to(fresh, lead["phone"]) == []
+    assert any("📎 with attachment: Porur brochure" in t for t in to(fresh, rm_phone()))
+    events.staff_command(rm_phone(), "SEND D1")
+    assert any("[b.pdf]" in t for t in to(fresh, lead["phone"]))
+
+
+def test_public_media_link_and_project_upload(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory, sales_kit
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    inventory.load_sample()
+    p = inventory.get_project("Porur Greens (sample)")
+    with TestClient(app) as c:
+        r = c.post(f"/inventory/project/{p['id']}/media", auth=("owner", "pw"),
+                   files={"file": ("plan.pdf", PDF, "application/pdf")}, data={"kind": "floor_plan", "title": "Plan"})
+        assert "Uploaded" in r.text
+        m = db.q1("SELECT * FROM media WHERE project_id = ?", (p["id"],))
+        got = c.get(f"/m/{m['token']}/{m['filename']}")                     # public, no login (WhatsApp fetches it)
+        assert got.status_code == 200 and got.content == PDF
+        assert c.get(f"/m/wrongtoken/{m['filename']}").status_code == 404
+        assert "Landing page:" in c.get(f"/inventory/project/{p['id']}", auth=("owner", "pw")).text
+
+
+def test_landing_page_captures_lead_with_consent(fresh):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory, web_public
+    from salesagent.server import app
+    web_public._hits.clear()
+    inventory.load_sample()
+    fresh.fake.queue([tool_use("send_message", text="Hi Ravi, I'm Saikrupa's assistant…", channel="whatsapp")])
+    with TestClient(app) as c:
+        page = c.get("/p/whitefield-skyline-sample?src=facebook&c=C7-V2")
+        assert page.status_code == 200 and "Whitefield Skyline" in page.text and "2BHK" in page.text
+        assert "(sample)" not in page.text.split("<h1>")[1].split("</h1>")[0]
+        assert "9024000" not in page.text and "floor" not in page.text.lower().replace("floor plans", "")
+        assert 'name="c" value="C7-V2"' in page.text and 'name="src" value="meta_ads"' in page.text
+        data = {"name": "Ravi", "phone": "98450 12345", "unit_type": "2BHK", "budget": "1cr",
+                "timeline": "Within 3 months", "src": "meta_ads", "c": "C7-V2", "website": ""}
+        no_consent = c.post("/p/whitefield-skyline-sample", data=data)
+        assert "consent box" in no_consent.text and not db.find_lead_by_phone("9845012345")
+        bad_phone = c.post("/p/whitefield-skyline-sample", data={**data, "consent": "1", "phone": "123"})
+        assert "valid 10-digit" in bad_phone.text
+        ok = c.post("/p/whitefield-skyline-sample", data={**data, "consent": "1"})
+        assert "Thank you" in ok.text
+        bot = c.post("/p/whitefield-skyline-sample", data={**data, "consent": "1", "phone": "9845099999",
+                                                          "website": "spam.example"})
+        assert "Thank you" in bot.text and not db.find_lead_by_phone("9845099999")   # honeypot: silently dropped
+        assert c.get("/p/no-such-project").status_code == 404
+        assert "Whitefield" in c.get("/enquire?city=Bangalore").text and "Privacy" in c.get("/privacy").text
+    lead = db.find_lead_by_phone("9845012345")
+    assert lead["source"] == "meta_ads" and lead["campaign"] == "C7-V2" and lead["city"] == "Bangalore"
+    assert lead["budget_max"] == 10000000 and lead["project_interest"] == "Whitefield Skyline (sample)"
+    assert lead["consent_at"] and "AI assistant" in lead["consent_text"] and "C7-V2" in lead["consent_source"]
+    assert fresh.fake.briefings and "new lead" in fresh.fake.briefings[-1].lower()
+
+
+def test_landing_rate_limit(fresh):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory, web_public
+    from salesagent.server import app
+    web_public._hits.clear()
+    inventory.load_sample()
+    with TestClient(app) as c:
+        for i in range(web_public.RATE_LIMIT):
+            r = c.post("/enquire", data={"name": f"P{i}", "phone": f"98450000{i:02d}", "city": "Chennai",
+                                         "consent": "1"})
+            assert "Thank you" in r.text
+        r = c.post("/enquire", data={"name": "P9", "phone": "9845000099", "city": "Chennai", "consent": "1"})
+        assert "Too many enquiries" in r.text
+
+
+def test_spend_report_unit_economics(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    month = get_settings().now().strftime("%Y-%m")
+    ids = []
+    for i in range(4):
+        lead, _ = leads.upsert_lead({"name": f"M{i}", "phone": f"90000555{i:02d}", "source": "meta_ads",
+                                     "campaign": "C1-V1"})
+        ids.append(lead["id"])
+    pipeline.move(ids[0], "qualified", "system")
+    pipeline.move(ids[1], "qualified", "system")
+    pipeline.move(ids[1], "visit_scheduled", "system")
+    pipeline.move(ids[1], "visit_done", "system")
+    pipeline.move(ids[1], "lost", "system", "too far")           # lost, but it still counts as visited
+    with TestClient(app) as c:
+        c.post("/reports/spend", auth=("owner", "pw"), data={"month": month, "source": "meta_ads", "amount": "20k",
+                                                             "campaign": ""})
+        c.post("/reports/spend", auth=("owner", "pw"), data={"month": month, "source": "google_ads",
+                                                             "campaign": "C1-V1", "amount": "8000"})
+        html = c.get("/reports", auth=("owner", "pw")).text
+        assert "Unit economics by channel" in html and "₹20,000" in html
+    from salesagent import marketing
+    row = next(r for r in marketing.spend_report("source") if r["key"] == "meta_ads")
+    assert (row["leads"], row["qualified"], row["visited"], row["booked"]) == (4, 2, 1, 0)
+    assert row["cpl"] == 5000 and row["cpq"] == 10000 and row["cpv"] == 20000 and row["cpb"] is None
+    camp = next(r for r in marketing.spend_report("campaign") if r["key"] == "C1-V1")
+    assert camp["spend"] == 8000 and camp["cpl"] == 2000

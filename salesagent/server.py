@@ -200,7 +200,17 @@ def page(title: str, body: str) -> HTMLResponse:
 <a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
 <a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
 <a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
-<main>{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
+<main>{_storage_banner()}{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
+
+
+def _storage_banner() -> str:
+    from .config import storage_status
+    st = storage_status()
+    if st["persistent"]:
+        return ""
+    return ('<div class="notice" style="background:#ffe9e6;border-color:#f3b2a9"><b>⚠️ Data is not on a permanent '
+            'disk.</b> Leads, inventory and settings are lost every time the app redeploys. In Railway: open the '
+            'sales-agent service, attach a volume (right-click the service → Attach volume) and redeploy.</div>')
 
 
 def test_mode() -> bool:
@@ -882,7 +892,8 @@ def icon():
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    from .config import storage_status
+    return {"ok": True, "storage": storage_status()}
 
 
 _include_routers()

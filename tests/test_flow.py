@@ -1097,3 +1097,12 @@ def test_waiver_matching_ignores_generic_words():
     assert _waived("Club membership", ["Club membership waiver"])
     assert not _waived("Registration charges", ["Documentation charges waiver"])
     assert not _waived("Maintenance deposit", ["Car parking included at no extra charge"])
+
+
+def test_storage_status_flags_missing_railway_volume(monkeypatch):
+    from salesagent import config
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
+    assert config.storage_status()["persistent"] is False
+    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(config.DATA_DIR))
+    assert config.storage_status()["persistent"] is True

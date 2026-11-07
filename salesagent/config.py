@@ -11,7 +11,18 @@ from zoneinfo import ZoneInfo
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = Path(os.environ.get("SALESAGENT_DATA", ROOT / "data"))
+# On Railway, use the attached volume wherever it is mounted (RAILWAY_VOLUME_MOUNT_PATH), so data survives redeploys.
+DATA_DIR = Path(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH") or os.environ.get("SALESAGENT_DATA") or ROOT / "data")
+
+
+def storage_status() -> dict:
+    """Is the data folder on a permanent disk? (On Railway that means an attached volume.)"""
+    on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RAILWAY_PROJECT_ID")
+                      or os.environ.get("RAILWAY_SERVICE_ID"))
+    volume = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH", "")
+    persistent = (not on_railway) or (bool(volume) and str(DATA_DIR).startswith(volume.rstrip("/")))
+    return {"data_dir": str(DATA_DIR), "on_railway": on_railway, "volume_mount": volume or None,
+            "persistent": persistent}
 
 
 def _load_dotenv() -> None:

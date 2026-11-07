@@ -1123,3 +1123,10 @@ def test_partner_office_visit_uses_builder_office_or_online_only(fresh):
     out, err = tools.run_tool(ctx, "get_office_slots", {"date": "2030-01-07"})
     assert not err and "Lakeside HQ, Whitefield" in out
     assert get_settings().booking["office_address"] not in out
+
+
+def test_call_tasks_close_when_lead_booked_or_lost():
+    lead = mk_lead()
+    team.create_call_task(lead["id"], "Follow up", 30, "b")
+    pipeline.move(lead["id"], "lost", "system", "bought elsewhere")
+    assert db.q1("SELECT status FROM call_tasks WHERE lead_id = ?", (lead["id"],))["status"] == "cancelled"

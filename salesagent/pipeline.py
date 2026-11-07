@@ -66,5 +66,9 @@ def move(lead_id: int, to: str, actor: str, reason: str = "") -> dict:
         changes["lost_reason"] = reason
         changes["next_followup_at"] = None
     db.update("leads", lead_id, changes)
+    if to in ("booked", "lost"):
+        # Nothing left to call about: close open call tasks so they don't clutter the salesperson's list.
+        db.q("UPDATE call_tasks SET status = 'cancelled', notes = ? WHERE lead_id = ? AND status IN ('open','attempted')",
+             (f"closed automatically: lead {to}", lead_id))
     db.audit(lead_id, actor, "stage", {"from": frm, "to": to, "reason": reason})
     return db.get_lead(lead_id)

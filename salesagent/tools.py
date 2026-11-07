@@ -322,16 +322,33 @@ def _save_strategy(ctx: ToolContext, a: dict) -> dict:
     return {"ok": True, "message": "Strategy saved and shared with the salesperson."}
 
 
+def office_for_lead(lead_id: int) -> dict:
+    """Where this buyer pays in person: the partner builder's office for partner bookings, else ours."""
+    bk = db.q1("SELECT * FROM bookings WHERE lead_id = ? AND status IN ('confirmed','awaiting_owner') "
+               "ORDER BY id DESC LIMIT 1", (lead_id,))
+    payee = payee_for(bk or {})
+    return {"address": payee.get("office_address") or "", "builder": payee.get("builder", "")}
+
+
 def _get_office_slots(ctx: ToolContext, a: dict) -> dict:
+    office = office_for_lead(ctx.lead_id)
+    if not office["address"]:
+        who = f"{office['builder']}'s" if office["builder"] else "our"
+        return {"ok": False, "error": f"No office address is saved for {who} office, so an in-person payment visit "
+                                      "can't be booked. Offer online transfer only, and mention in a call task that "
+                                      "the address needs adding."}
     try:
-        return {"ok": True, "slots": visits.office_slots(a["date"])[:12],
-                "address": get_settings().booking.get("office_address", "")}
+        return {"ok": True, "slots": visits.office_slots(a["date"])[:12], "address": office["address"],
+                "office_of": office["builder"] or "us"}
     except ValueError:
         return {"ok": False, "error": "Date must be YYYY-MM-DD."}
 
 
 def _book_office_visit(ctx: ToolContext, a: dict) -> dict:
-    return visits.book_office(ctx.lead_id, a["datetime"], a.get("purpose", "Booking advance"))
+    office = office_for_lead(ctx.lead_id)
+    if not office["address"]:
+        return {"ok": False, "error": "No office address saved for this payee. Offer online transfer only."}
+    return visits.book_office(ctx.lead_id, a["datetime"], a.get("purpose", "Booking advance"), office["address"])
 
 
 def payee_for(booking: dict) -> dict:

@@ -1106,3 +1106,20 @@ def test_storage_status_flags_missing_railway_volume(monkeypatch):
     assert config.storage_status()["persistent"] is False
     monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(config.DATA_DIR))
     assert config.storage_status()["persistent"] is True
+
+
+def test_partner_office_visit_uses_builder_office_or_online_only(fresh):
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore")
+    unit = db.q1("SELECT * FROM units WHERE unit_no = 'A-101'")
+    oid = db.insert("offers", {"lead_id": lead["id"], "project": p["name"], "unit_type": "2BHK", "unit_id": unit["id"],
+                               "offered_price": 8800000, "list_price": 8800000, "status": "approved"})
+    db.insert("bookings", {"lead_id": lead["id"], "offer_id": oid, "unit_id": unit["id"], "status": "confirmed",
+                           "token_amount": 200000})
+    ctx = tools.ToolContext(lead["id"], "t")
+    out, err = tools.run_tool(ctx, "get_office_slots", {"date": "2030-01-07"})
+    assert err and "Lakeside Partner's office" in out and "online transfer only" in out
+    db.q("UPDATE builders SET office_address = 'Lakeside HQ, Whitefield' WHERE id = ?", (p["builder_id"],))
+    out, err = tools.run_tool(ctx, "get_office_slots", {"date": "2030-01-07"})
+    assert not err and "Lakeside HQ, Whitefield" in out
+    assert get_settings().booking["office_address"] not in out

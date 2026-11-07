@@ -41,13 +41,13 @@ site_persons:
 # Advance / booking amount. Customers pay ONLY into this account (online) or at the office.
 booking:
   advance_amount: 200000                  # standard booking advance
-  payee_name: "Sunrise Developers Pvt Ltd"
+  payee_name: "Saikrupa AI Realty"
   bank_name: "HDFC Bank"
   account_number: "50200000000000"
   ifsc: "HDFC0000000"
   upi_id: ""                              # optional
   verify_phone: "+914400000000"           # customers can call this office line to verify the account
-  office_address: "Sunrise Developers, 12 Main Road, Adyar, Chennai"
+  office_address: "Saikrupa AI Realty, Chennai office (edit in Settings)"
   office_hours: ["10:00", "18:00"]
   office_days: [0, 1, 2, 3, 4, 5]
   office_visit_slots_per_hour: 2

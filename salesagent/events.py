@@ -190,8 +190,9 @@ def owner_booking_decision(booking_id: int, confirm: bool, note: str) -> str:
             inventory.hold_unit(b["unit_id"], b["lead_id"])
         detail = (f"Management CONFIRMED booking B{booking_id} (advance {pricing.fmt_money(b['token_amount'])}). "
                   f"Note: {note or '-'}. Now get the advance paid to the builder: 1) share_payment_details for "
-                  f"B{booking_id}; 2) offer both options - online transfer, or a visit to our office (offer two "
-                  "office slots); 3) create a call task for the salesperson to walk them through it. The deal is "
+                  f"B{booking_id}; 2) offer both options - online transfer, or paying in person at the "
+                  "seller's office (ours, or the partner builder's for partner projects; use get_office_slots, and "
+                  "if it says no address is saved, offer online transfer only); 3) create a call task for the salesperson to walk them through it. The deal is "
                   "booked only when the advance is received.")
     else:
         if b.get("unit_id"):

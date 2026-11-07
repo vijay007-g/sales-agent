@@ -147,7 +147,7 @@ def book(lead_id: int, project: str, when_iso: str, notes: str = "") -> dict:
     return out
 
 
-def book_office(lead_id: int, when_iso: str, purpose: str) -> dict:
+def book_office(lead_id: int, when_iso: str, purpose: str, address: str = "") -> dict:
     s = get_settings()
     when = _parse_when(when_iso)
     if when is None:
@@ -164,12 +164,12 @@ def book_office(lead_id: int, when_iso: str, purpose: str) -> dict:
         "form_token": db.new_token(), "feedback": purpose, "created_at": db.now_iso(), "updated_at": db.now_iso()})
     lead = db.get_lead(lead_id)
     channels.notify_staff(s.owner["phone"], (
-        f"OFFICE VISIT O{vid}\n{when:%a %d %b, %I:%M %p} at {s.booking.get('office_address', 'office')}\n"
+        f"OFFICE VISIT O{vid}\n{when:%a %d %b, %I:%M %p} at {address or s.booking.get('office_address', 'office')}\n"
         f"{lead['name']} ({lead['phone']}) — {purpose}\nSales: {lead.get('rm_name') or '-'}\n"
         f"When the advance is received reply: PAID B<booking no> <amount> <receipt/UTR>"))
     db.audit(lead_id, "agent", "office_visit_booked", {"visit_id": vid, "when": when.isoformat()})
     return {"ok": True, "office_visit_id": vid, "when": when.isoformat(timespec="minutes"),
-            "address": s.booking.get("office_address", "")}
+            "address": address or s.booking.get("office_address", "")}
 
 
 def cancel(lead_id: int, visit_id: int, reason: str) -> dict:

@@ -44,17 +44,35 @@ def _include_routers() -> None:
     app.include_router(public_router)
 
 
-def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
+def check_auth_header(header: str | None) -> str:
+    """Accepts the browser's Basic login (password in either box, stray spaces ignored) or, for automation,
+    `Authorization: Bearer <DASHBOARD_API_TOKEN>`. Raises 401/503 otherwise."""
+    import base64
     pw = env("DASHBOARD_PASSWORD").strip().strip('"').strip("'")
-    if not pw:
+    token = env("DASHBOARD_API_TOKEN").strip().strip('"').strip("'")
+    if not pw and not token:
         raise HTTPException(503, "Set DASHBOARD_PASSWORD in .env first")
-    # Only the password matters; it is accepted from either box (people sometimes fill them the other way round).
-    # Stray spaces from pasting are ignored.
-    in_pass = secrets.compare_digest(creds.password.strip().encode(), pw.encode())
-    in_user = secrets.compare_digest(creds.username.strip().encode(), pw.encode())
-    if not (in_pass or in_user):
+    scheme, _, value = (header or "").partition(" ")
+    value = value.strip()
+    if scheme.lower() == "bearer" and token and len(token) >= 16 and secrets.compare_digest(value.encode(), token.encode()):
+        return "owner"
+    if scheme.lower() == "basic" and pw:
+        try:
+            user, _, given = base64.b64decode(value).decode("utf-8", "replace").partition(":")
+        except ValueError:
+            user, given = "", ""
+        if secrets.compare_digest(given.strip().encode(), pw.encode()) or \
+                secrets.compare_digest(user.strip().encode(), pw.encode()):
+            return "owner"
         raise HTTPException(401, "Wrong password", headers={"WWW-Authenticate": "Basic"})
-    return "owner"
+    if scheme.lower() == "bearer":
+        raise HTTPException(401, "Wrong access key" if token else "DASHBOARD_API_TOKEN is not set",
+                            headers={"WWW-Authenticate": "Basic"})
+    raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Basic"})
+
+
+def owner_auth(request: Request) -> str:
+    return check_auth_header(request.headers.get("authorization"))
 
 
 def _check_secret(given: str | None) -> None:

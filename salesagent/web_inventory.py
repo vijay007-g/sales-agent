@@ -6,7 +6,6 @@ from html import escape
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, PlainTextResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from . import db, inventory, partners, sales_kit
 from .pricing import fmt_money
@@ -15,13 +14,12 @@ from .settings_form import JS as FORM_JS
 from .settings_form import area, days, inp, money, sel
 
 router = APIRouter()
-_basic = HTTPBasic()
 DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def auth(creds: HTTPBasicCredentials = Depends(_basic)) -> str:
-    from .server import owner_auth
-    return owner_auth(creds)
+def auth(request: Request) -> str:
+    from .server import check_auth_header
+    return check_auth_header(request.headers.get("authorization"))
 
 
 UNITS_CSS = """@media (max-width:800px){table.units tr:first-child{display:none}
@@ -85,7 +83,7 @@ def inventory_home(_: str = Depends(auth)):
 <p><small>Your own company and every partner builder whose projects you sell. Commission, contacts for client
 registration, and their bank account for customers' booking advance.</small></p>
 <table><tr><th>Builder</th><th></th><th>Commission</th><th>Contact</th><th></th></tr>{brows}</table>
-<a href="/inventory/builder/new"><button class="addbtn">+ Add partner builder</button></a></div>
+<a href="/inventory/builder/new"><button>+ Add partner builder</button></a></div>
 {cards or '<div class="card">No projects yet.</div>'}
 <div class="card"><a href="/inventory/project/new"><button>+ Add project</button></a></div>
 <div class="card"><h3>Trial inventory</h3><p><small>Four sample projects in Chennai and Bangalore (one own, three from two
@@ -181,7 +179,15 @@ def _project_form(p: dict) -> str:
     lines = lambda k: "\n".join(p.get(k) or []) if isinstance(p.get(k), list) else (p.get(k) or "")  # noqa: E731
     return f"""<div class="card"><h3>Project</h3><div class="fields">
 {inp("name", "Project name", p.get("name"), required=True)}
-{sel("builder_id", "Builder", p.get("builder_id") or inventory.own_builder_id(), builders)}
+<label class="f"><span>Builder</span><select name="builder_id" onchange="document.getElementById('newb').style.display=this.value==='new'?'grid':'none'">
+{"".join(f'<option value="{escape(v)}"{" selected" if str(v) == str(p.get("builder_id") or inventory.own_builder_id()) else ""}>{escape(t)}</option>' for v, t in builders)}
+<option value="new">+ New partner builder…</option></select><small>Partner project? Pick the builder, or add a new one here.</small></label>
+<div id="newb" class="fields wide" style="display:none;border:1px dashed #9aa3b5;border-radius:8px;padding:10px">
+{inp("new_builder_name", "New builder's name", "", placeholder="e.g. Greenfield Homes")}
+{inp("new_builder_commission", "Commission %", "", placeholder="2")}
+{inp("new_builder_phone", "Builder contact WhatsApp (for client registration)", "", "tel")}
+{inp("new_builder_email", "Builder contact email", "", "email")}
+<small class="wide">Add the builder's bank account later on their page (Inventory → builder name).</small></div>
 {inp("city", "City", p.get("city"), placeholder="Chennai / Bangalore", required=True)}
 {inp("locality", "Locality", p.get("locality"), placeholder="Vadapalani")}
 {inp("type", "Type", p.get("type"), placeholder="Apartments / Villas / Plots")}
@@ -315,8 +321,19 @@ async def project_save(pid: str, request: Request, _: str = Depends(auth)):
     g = lambda k: str(f.get(k, "") or "").strip()  # noqa: E731
     if not g("name") or not g("city"):
         raise HTTPException(400, "Project name and city are required")
+    builder_id = g("builder_id")
+    if builder_id == "new":
+        if not g("new_builder_name"):
+            raise HTTPException(400, "Enter the new builder's name")
+        existing_b = db.q1("SELECT id FROM builders WHERE lower(name) = lower(?)", (g("new_builder_name"),))
+        builder_id = existing_b["id"] if existing_b else db.insert("builders", {
+            "name": g("new_builder_name"), "is_own": 0, "commission_type": "pct",
+            "commission_value": _num(g("new_builder_commission")) or 0, "contact_phone": _phone(g("new_builder_phone")),
+            "contact_email": g("new_builder_email"), "payment_terms_days": 45, "registration_validity_days": 90,
+            "created_at": db.now_iso()})
+        db.audit(None, "owner", "builder_saved", g("new_builder_name"))
     vdays = sorted({int(x) for x in f.getlist("visit_days[]")})
-    data = {"name": g("name"), "builder_id": int(g("builder_id") or inventory.own_builder_id()), "city": g("city").title(),
+    data = {"name": g("name"), "builder_id": int(builder_id or inventory.own_builder_id()), "city": g("city").title(),
             "locality": g("locality"), "type": g("type"), "status": g("status"), "possession": g("possession"),
             "rera": g("rera"), "active": 1 if g("active") != "0" else 0, "highlights": g("highlights"),
             "payment_plans": g("payment_plans"), "approval_concessions": g("approval_concessions"),

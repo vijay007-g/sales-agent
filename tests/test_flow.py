@@ -1038,3 +1038,38 @@ def test_spend_report_unit_economics(fresh, monkeypatch):
     assert row["cpl"] == 5000 and row["cpq"] == 10000 and row["cpv"] == 20000 and row["cpb"] is None
     camp = next(r for r in marketing.spend_report("campaign") if r["key"] == "C1-V1")
     assert camp["spend"] == 8000 and camp["cpl"] == 2000
+
+
+def test_access_key_login(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw12345")
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "k9Fq72LmZp0XwD4s")
+    with TestClient(app) as c:
+        assert c.get("/", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
+        assert c.get("/inventory", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
+        assert c.get("/", headers={"Authorization": "Bearer wrong-key-wrong-key"}).json()["detail"] == "Wrong access key"
+        assert c.get("/", auth=("owner", "pw12345")).status_code == 200            # browser login still works
+        r = c.get("/")
+        assert r.status_code == 401 and r.headers["www-authenticate"] == "Basic"   # browser still gets the prompt
+    monkeypatch.setenv("DASHBOARD_API_TOKEN", "short")
+    with TestClient(app) as c:                                                     # too-short keys are refused
+        assert c.get("/", headers={"Authorization": "Bearer short"}).status_code == 401
+
+
+def test_new_builder_from_project_form(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        form = c.get("/inventory/project/new", auth=("owner", "pw")).text
+        assert "+ New partner builder" in form
+        c.post("/inventory/project/new", auth=("owner", "pw"), data={
+            "name": "Anna Nagar Towers", "city": "chennai", "builder_id": "new", "new_builder_name": "Riverside Builders",
+            "new_builder_commission": "2.5", "new_builder_phone": "9876512345", "active": "1"})
+    b = db.q1("SELECT * FROM builders WHERE name = 'Riverside Builders'")
+    p = db.q1("SELECT * FROM inv_projects WHERE name = 'Anna Nagar Towers'")
+    assert b and b["is_own"] == 0 and b["commission_value"] == 2.5 and b["contact_phone"] == "+919876512345"
+    assert p["builder_id"] == b["id"] and p["city"] == "Chennai"

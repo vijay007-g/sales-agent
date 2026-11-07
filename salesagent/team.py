@@ -21,12 +21,15 @@ def assign_rm(lead_id: int) -> dict | None:
     if not s.sales_team:
         return None
     loads = []
-    for r in s.sales_team:
+    city = (lead.get("city") or "").strip().lower()
+    team_for_city = [r for r in s.sales_team if city and city in [c.lower() for c in r.get("cities") or []]]
+    candidates = team_for_city or [r for r in s.sales_team if not r.get("cities")] or s.sales_team
+    for r in candidates:
         n = db.q1("SELECT COUNT(*) n FROM leads WHERE rm_name = ? AND stage NOT IN ('booked','lost')",
                   (r["name"],))["n"]
         if n < r.get("max_active_leads", 10**6):
             loads.append((n, r["name"]))
-    rm = s.rm(min(loads)[1]) if loads else s.sales_team[0]
+    rm = s.rm(min(loads)[1]) if loads else candidates[0]
     db.update("leads", lead_id, {"rm_name": rm["name"]})
     db.audit(lead_id, "system", "assigned", rm["name"])
     return rm
@@ -36,6 +39,11 @@ def rm_for(lead: dict) -> dict:
     s = get_settings()
     rm = s.rm(lead.get("rm_name")) or assign_rm(lead["id"])
     return rm or {"name": s.business["name"], "phone": s.owner["phone"], "message_mode": "auto"}
+
+
+def prompts_intro() -> str:
+    from .prompts import assistant_intro
+    return assistant_intro()
 
 
 def base_url() -> str:
@@ -62,7 +70,7 @@ def deliver(lead_id: int, text: str, channel: str = "whatsapp", subject: str = "
         if not lead["email"]:
             return {"ok": False, "error": "No email on file. Use WhatsApp."}
         res = channels.send_email(lead["email"], subject or get_settings().business["name"],
-                                  f"{text}\n\n{rm['name']}\n{get_settings().business['name']}")
+                                  f"{text}\n\n{prompts_intro()}, on behalf of {rm['name']}\n{get_settings().business['name']}")
     else:
         res = channels.send_whatsapp(lead["phone"], text, within_24h_window=within_24h(lead),
                                      phone_number_id=rm.get("whatsapp_phone_number_id") or None,

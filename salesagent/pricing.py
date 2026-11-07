@@ -39,13 +39,15 @@ def public_unit_info(project: dict) -> list[dict]:
 def evaluate(lead_id: int, project: str, unit_type: str, offered_price: int,
              concessions: list[str], payment_terms: str, customer_ask: int | None,
              justification: str, unit_no: str = "") -> dict:
+    from . import inventory
     s = get_settings()
-    proj = s.project(project)
-    unit = s.unit(project, unit_type)
-    if not proj or not unit:
-        return {"ok": False, "error": f"Unknown project/unit '{project}' / '{unit_type}'."}
-    if unit.get("available", 1) <= 0:
-        return {"ok": False, "error": f"{unit_type} in {project} is sold out. Offer an alternative unit type."}
+    proj = inventory.get_project(project)
+    if not proj:
+        return {"ok": False, "error": f"Unknown project '{project}'. Use search_properties to find valid projects."}
+    unit = inventory.find_unit(proj, unit_type, unit_no, lead_id)
+    if not unit:
+        return {"ok": False, "error": f"No available {unit_type} {unit_no} in {proj['name']} (sold or not listed). "
+                                      "Use search_properties to offer an alternative."}
 
     list_price = int(unit["list_price"])
     floor = int(unit["floor_price"])
@@ -61,16 +63,18 @@ def evaluate(lead_id: int, project: str, unit_type: str, offered_price: int,
     discount_pct = round((list_price - offered_price) / list_price * 100, 2)
     free = {c.lower() for c in proj.get("free_concessions", [])}
     unknown_or_paid = [c for c in concessions if c.lower() not in free]
+    auto_pct = float(s.agent.get("auto_approve_discount_pct", 0) or 0)
 
     if offered_price < floor:
         status = "blocked_floor"
-    elif discount_pct <= float(unit.get("auto_approve_discount_pct", 0)) and not unknown_or_paid:
+    elif discount_pct <= auto_pct and not unknown_or_paid:
         status = "auto_approved"
     else:
         status = "pending_approval"
 
     offer_id = db.insert("offers", {
-        "lead_id": lead_id, "project": proj["name"], "unit_type": unit["type"], "unit_no": unit_no,
+        "lead_id": lead_id, "project": proj["name"], "unit_type": unit["unit_type"],
+        "unit_no": unit["unit_no"] or unit_no, "unit_id": unit["id"], "project_id": proj["id"],
         "list_price": list_price, "offered_price": offered_price, "discount_pct": discount_pct,
         "concessions": json.dumps(concessions), "payment_terms": payment_terms,
         "customer_ask": customer_ask, "justification": justification, "status": status,
@@ -95,7 +99,7 @@ def evaluate(lead_id: int, project: str, unit_type: str, offered_price: int,
     # blocked_floor
     channels.notify_staff(s.owner["phone"], (
         f"FYI (no action needed): {lead['name']} (lead #{lead_id}) asked for "
-        f"{fmt_money(customer_ask or offered_price)} on {unit['type']} at {proj['name']}. This is below "
+        f"{fmt_money(customer_ask or offered_price)} on {unit['unit_type']} at {proj['name']}. This is below "
         f"your floor, so the AI did not offer it. To counter anyway reply: COUNTER {offer_id} <price>"))
     return {"ok": True, "offer_id": offer_id, "status": status,
             "message": ("That price is not possible. Do not offer it and do not propose it again. "
@@ -107,10 +111,16 @@ def notify_owner_offer(offer_id: int) -> None:
     s = get_settings()
     o = db.q1("SELECT * FROM offers WHERE id = ?", (offer_id,))
     lead = db.get_lead(o["lead_id"])
-    unit = s.unit(o["project"], o["unit_type"]) or {}
+    from . import inventory
+    unit = db.q1("SELECT * FROM units WHERE id = ?", (o["unit_id"],)) if o.get("unit_id") else None
+    unit = unit or {}
     margin_note = ""
     if unit.get("floor_price"):
         margin_note = f"\nAbove floor by: {fmt_money(o['offered_price'] - unit['floor_price'])}"
+    proj = inventory.get_project(o["project_id"] or o["project"])
+    if proj and not proj["is_own"]:
+        margin_note += (f"\nPartner project ({proj['builder']}): your commission at this price ≈ "
+                        f"{fmt_money(inventory.commission_for(proj, o['offered_price']))}")
     conc = ", ".join(json.loads(o["concessions"] or "[]")) or "none"
     text = (
         f"APPROVAL NEEDED #{offer_id}\n"

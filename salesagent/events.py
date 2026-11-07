@@ -8,7 +8,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
-from . import agent, channels, db, leads, pipeline, pricing, team, visits
+from . import agent, channels, db, inventory, leads, partners, pipeline, pricing, team, visits
 from .config import get_settings
 
 log = logging.getLogger("salesagent.events")
@@ -33,9 +33,10 @@ def new_lead(lead_id: int) -> None:
     rm = team.assign_rm(lead_id)
     detail = (f"A new lead just came in from source '{lead['source']}'"
               f"{' (campaign ' + lead['campaign'] + ')' if lead.get('campaign') else ''}. It is assigned to "
-              f"{rm['name'] if rm else 'the team'}. Send a short, genuine first WhatsApp message as "
-              f"{rm['name'] if rm else 'the salesperson'} (thank them, mention what they enquired about, say you'll "
-              "give them a quick call). Then create an intro call task due within 10 minutes with a brief.")
+              f"{rm['name'] if rm else 'the team'}. Send a short, warm first WhatsApp: introduce yourself as the "
+              f"assistant working with {rm['name'] if rm else 'our sales team'}, mention what they enquired about, "
+              "ask one qualifying question, and say the salesperson will call them shortly. Then create an intro call "
+              "task due within 10 minutes with a brief.")
     _run(lead_id, "new_lead", detail)
 
 
@@ -185,12 +186,16 @@ def owner_booking_decision(booking_id: int, confirm: bool, note: str) -> str:
         db.update("bookings", booking_id, {"status": "confirmed", "decided_at": db.now_iso(),
                                            "notes": (b["notes"] or "") + f" | management: {note}"})
         pipeline.move(b["lead_id"], "payment_pending", "owner", f"booking B{booking_id} confirmed")
+        if b.get("unit_id"):
+            inventory.hold_unit(b["unit_id"], b["lead_id"])
         detail = (f"Management CONFIRMED booking B{booking_id} (advance {pricing.fmt_money(b['token_amount'])}). "
                   f"Note: {note or '-'}. Now get the advance paid to the builder: 1) share_payment_details for "
                   f"B{booking_id}; 2) offer both options - online transfer, or a visit to our office (offer two "
                   "office slots); 3) create a call task for the salesperson to walk them through it. The deal is "
                   "booked only when the advance is received.")
     else:
+        if b.get("unit_id"):
+            inventory.release_unit(b["unit_id"])
         db.update("bookings", booking_id, {"status": "on_hold", "decided_at": db.now_iso(),
                                            "notes": (b["notes"] or "") + f" | management hold: {note}"})
         pipeline.move(b["lead_id"], "negotiation", "owner", f"booking B{booking_id} on hold")
@@ -212,6 +217,12 @@ def payment_received(booking_id: int, amount: int | None, ref: str) -> str:
     o = db.q1("SELECT * FROM offers WHERE id = ?", (b["offer_id"],))
     db.update("offers", o["id"], {"status": "accepted"})
     pipeline.move(b["lead_id"], "booked", "owner", f"advance received B{booking_id} {ref}")
+    extra = ""
+    if b.get("unit_id"):
+        inventory.mark_booked(b["unit_id"])
+        cid = partners.record_commission(b, o["owner_counter_price"] or o["offered_price"])
+        if cid:
+            extra = f"\nCommission C{cid} recorded — see the Commissions page."
     db.update("leads", b["lead_id"], {"next_followup_at": None})
     for v in db.q("SELECT id FROM site_visits WHERE lead_id = ? AND kind = 'office' AND status = 'scheduled'",
                   (b["lead_id"],)):
@@ -222,8 +233,7 @@ def payment_received(booking_id: int, amount: int | None, ref: str) -> str:
              f"({pricing.fmt_money(amount or b['token_amount'])}, ref {ref or '-'}). The flat is booked. Congratulate "
              "the customer warmly, explain next steps (agreement, documents, loan process if any), and if it feels "
              "right ask whether friends or family are also looking.")
-    return (f"Payment for B{booking_id} recorded. Lead marked BOOKED. 🎉\n"
-            f"Remember to reduce {o['unit_type']} availability for {o['project']} in Settings.")
+    return f"Payment for B{booking_id} recorded. Lead marked BOOKED and the unit removed from availability. 🎉{extra}"
 
 
 # ------------------------- team WhatsApp commands -------------------------
@@ -255,8 +265,19 @@ def staff_command(phone: str, text: str) -> str | None:
     p = db.normalize_phone(phone)
     is_owner = p == db.normalize_phone(s.owner["phone"])
     site = next((x for x in s.site_persons if db.normalize_phone(x["phone"]) == p), None)
+    site = site or inventory.all_host_phones().get(p)
     rm = next((x for x in s.sales_team if db.normalize_phone(x["phone"]) == p), None)
+    words = text.strip().split()
+    if words and words[0].upper() in ("ACK", "DISPUTE") and len(words) > 1 and partners.is_builder_phone(phone):
+        rid = _num(words[1], "R")
+        if rid is not None:
+            reply = partners.builder_reply(phone, words[0].upper(), rid, " ".join(words[2:]))
+            if reply is not None:
+                return reply
     if not (is_owner or site or rm):
+        if partners.is_builder_phone(phone):
+            return ("Hello from our sales system. To confirm a client registration reply  ACK R<no>  or  "
+                    "DISPUTE R<no> <reason>. For anything else please call our office.")
         return None
     parts = text.strip().split()
     if not parts:

@@ -127,7 +127,7 @@ def validate_config(raw) -> list[str]:
     errs = []
     if not isinstance(raw, dict):
         return ["The settings must be a YAML mapping (key: value lines)."]
-    for key in ("business", "owner", "projects"):
+    for key in ("business", "owner"):
         if not raw.get(key):
             errs.append(f"Missing section '{key}'.")
     if raw.get("owner") and not raw["owner"].get("phone"):

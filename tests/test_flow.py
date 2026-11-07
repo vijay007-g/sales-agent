@@ -123,7 +123,9 @@ def test_new_lead_assigned_first_message_and_intro_call(fresh):
     system = call["system"][0]["text"] + call["system"][1]["text"]
     for u in (u for p in get_settings().projects for u in p["units"]):
         assert str(u["floor_price"]) not in system           # floor prices never reach the model
-    assert "You write as Anitha" in call["system"][1]["text"]
+    assert "This lead's salesperson: Anitha" in call["system"][1]["text"]
+    assert "Sunrise Meadows" in call["system"][1]["text"]            # inventory summary
+    assert "Saikrupa's assistant" in call["system"][0]["text"]
     assert call["fallbacks"] == "default"
 
 
@@ -484,7 +486,7 @@ def test_settings_page_validates_and_saves(tmp_path, monkeypatch):
                            data={"config": text.replace("floor_price: 6900000", "floor_price: 99000000")})
             assert "floor price is above list price" in worse.text
             ok = c.post("/settings/advanced", auth=("owner", "pw"),
-                        data={"config": text.replace('name: "Sunrise Developers"', 'name: "Vijay Homes"')})
+                        data={"config": text.replace('name: "Saikrupa AI Realty"', 'name: "Vijay Homes"')})
             assert ok.status_code == 200 and (tmp_path / "cfg.yaml").exists()
             assert get_settings().business["name"] == "Vijay Homes"
     finally:
@@ -523,7 +525,7 @@ def _form_data(**over):
         "sales_team[0][style]": "Friendly",
         "sales_team[n1][name]": "", "sales_team[n1][phone]": "",          # empty added row is ignored
         "site_persons[0][name]": "Kumar", "site_persons[0][phone]": "9876522222",
-        "site_persons[0][projects]": "Green Park", "site_persons[0][visit_hours][from]": "09:30",
+        "site_persons[0][projects]": "Sunrise Meadows", "site_persons[0][visit_hours][from]": "09:30",
         "site_persons[0][visit_hours][to]": "17:30", "site_persons[0][max_visits_per_day]": "5",
         "site_persons[0][working_days][]": ["0", "1", "2", "3", "4", "5"],
         "projects[0][name]": "Green Park", "projects[0][location]": "Porur, Chennai", "projects[0][type]": "Villas",
@@ -556,12 +558,12 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
     try:
         with TestClient(app) as c:
             page_html = c.get("/settings", auth=("owner", "pw")).text
-            assert "Company name" in page_html and "Add salesperson" in page_html and "Floor price" in page_html
+            assert "Company name" in page_html and "Add salesperson" in page_html and "/inventory" in page_html
             bad = c.post("/settings", auth=("owner", "pw"),
                          data=_form_data(**{"projects[0][units][0][floor_price]": "2cr",
                                             "site_persons[0][projects]": "Grn Park",
                                             "owner[phone]": "123"}))
-            assert "Not saved" in bad.text and "floor price is above" not in bad.text   # field errors first
+            assert "Not saved" in bad.text
             assert "Grn Park" in bad.text and "look like a full phone number" in bad.text
             assert 'value="Grn Park"' in bad.text and not (tmp_path / "cfg.yaml").exists()   # input kept
             r = c.post("/settings", auth=("owner", "pw"), data=_form_data())
@@ -569,12 +571,10 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
         s = get_settings()
         assert s.business["name"] == "Vijay Homes" and s.owner["phone"] == "+919876500000"
         assert [t["name"] for t in s.sales_team] == ["Priya"]
-        u = s.unit("Green Park", "3BHK Villa")
-        assert u["list_price"] == 12000000 and u["floor_price"] == 11000000
         assert s.booking["advance_amount"] == 300000 and s.booking["ifsc"] == "SBIN0000001"
         assert s.site_persons[0]["visit_hours"] == ["09:30", "17:30"] and 6 not in s.site_persons[0]["working_days"]
         assert s.followups  # sections not on the form are kept
-        assert "6900000" not in prompts.system_prompt() and "11000000" not in prompts.system_prompt()
+        assert "6900000" not in prompts.system_prompt()
     finally:
         monkeypatch.delenv("SALESAGENT_CONFIG")
         config.reload_settings()
@@ -639,3 +639,228 @@ def test_bare_small_numbers_are_lakhs():
     assert events.parse_amount("80 lakhs") == 8000000
     assert events.parse_amount("2 crores") == 20000000
     assert events.parse_amount("200000") == 200000
+
+
+# ------------------------------------------------------------------ channel partner: inventory, matchmaker, registration, commission
+
+BUILDER_PHONE = "+919811100000"
+HOST_PHONE = "+919811100001"
+
+
+def _partner_setup():
+    from salesagent import inventory
+    bid = db.insert("builders", {"name": "Prestige Partner", "is_own": 0, "contact_name": "Suresh",
+                                 "contact_phone": BUILDER_PHONE, "contact_email": "crm@partner.example",
+                                 "commission_type": "pct", "commission_value": 2, "payment_terms_days": 30,
+                                 "registration_validity_days": 90, "bank_payee": "Prestige Partner Pvt Ltd",
+                                 "bank_name": "ICICI", "bank_account": "999888777", "bank_ifsc": "ICIC0000999",
+                                 "verify_phone": "+918000000000", "created_at": db.now_iso()})
+    pid = db.insert("inv_projects", {"builder_id": bid, "name": "Lakeview Heights", "city": "Bangalore",
+                                     "locality": "Whitefield", "type": "Apartments", "status": "Ready to move",
+                                     "possession": "Ready", "rera": "KA/1", "highlights": "Near ITPL\nLake view",
+                                     "payment_plans": "Bank loans", "approval_concessions": "Free parking",
+                                     "site_host_name": "Manju", "site_host_phone": HOST_PHONE,
+                                     "visit_hours": "10:00-18:00", "visit_days": "0,1,2,3,4,5,6",
+                                     "max_visits_per_day": 6, "active": 1, "created_at": db.now_iso()})
+    for no, price, floor in (("A-101", 8800000, 8200000), ("A-502", 9200000, 8600000), ("B-1201", 9900000, 9300000)):
+        db.insert("units", {"project_id": pid, "unit_no": no, "unit_type": "2BHK", "floor": no.split("-")[1][:-2],
+                            "facing": "East", "size_sqft": 1200, "list_price": price, "floor_price": floor,
+                            "quantity": 1, "status": "available"})
+    return inventory.get_project(pid)
+
+
+def test_inventory_seeded_from_settings_and_type_level_stock():
+    from salesagent import inventory
+    p = inventory.get_project("Sunrise Meadows")
+    assert p and p["is_own"] and p["city"] == "Chennai"
+    t = {x["type"]: x for x in inventory.type_summary(p["id"])}
+    assert t["2BHK"]["available"] == 18 and t["2BHK"]["price_min"] == 7500000
+    u = inventory.find_unit(p, "2BHK")
+    inventory.mark_booked(u["id"])
+    assert {x["type"]: x for x in inventory.type_summary(p["id"])}["2BHK"]["available"] == 17
+
+
+def test_matchmaker_search_across_cities_without_floor_prices(fresh):
+    _partner_setup()
+    lead = mk_lead(city="Bangalore", budget_max="95L")
+    ctx = tools.ToolContext(lead_id=lead["id"], event="t")
+    out = json.loads(tools.run_tool(ctx, "search_properties", {"unit_type": "2BHK"})[0])
+    projects = {m["project"] for m in out["matches"]}
+    assert projects == {"Lakeview Heights"}                         # city filter from the lead
+    assert out["matches"][0]["unit_no"] == "A-502"                  # closest under the 95L budget first
+    assert all(m["list_price"] <= 9500000 * 1.1 for m in out["matches"])
+    assert "8600000" not in json.dumps(out) and "floor_price" not in json.dumps(out)
+    details = json.loads(tools.run_tool(ctx, "get_project_details", {"project": "lakeview"})[0])
+    assert details["builder"] == "Prestige Partner" and len(details["available_units"]) == 3
+    assert "8200000" not in json.dumps(details)
+    none = json.loads(tools.run_tool(ctx, "search_properties", {"city": "Pune"})[0])
+    assert none["matches"] == [] and "Bangalore" in none["cities_we_cover"]
+    assert "Lakeview Heights" in prompts.persona_and_playbook(get_settings().sales_team[0])
+    assert "8200000" not in prompts.persona_and_playbook(get_settings().sales_team[0])
+
+
+def test_city_routing_assigns_city_salesperson(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "raw", {**s.raw, "sales_team": [
+        {"name": "Anitha", "phone": "+919800000010", "cities": ["Chennai"]},
+        {"name": "Kiran", "phone": "+919800000020", "cities": ["Bangalore"]}]})
+    blr = mk_lead(city="Bangalore")
+    assert team.assign_rm(blr["id"])["name"] == "Kiran"
+    lead2, _ = leads.upsert_lead({"name": "C", "phone": "9000011111", "city": "Chennai"})
+    assert team.assign_rm(lead2["id"])["name"] == "Anitha"
+
+
+def test_partner_visit_registers_client_and_builder_ack(fresh):
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore")
+    pipeline.move(lead["id"], "qualified", "system")
+    tomorrow = (get_settings().now() + timedelta(days=1)).date().isoformat()
+    slots = visits.free_slots("Lakeview Heights", tomorrow)
+    assert slots and slots[0]["site_person"] == "Manju"
+    res = visits.book(lead["id"], "Lakeview Heights", slots[0]["time"], "wants high floor")
+    assert res["ok"] and "registered with the builder" in res["partner_project"]
+    reg = db.q1("SELECT * FROM registrations WHERE lead_id = ?", (lead["id"],))
+    assert reg["status"] == "sent" and reg["project_id"] == p["id"]
+    assert any(f"CLIENT REGISTRATION R{reg['id']}" in t and "Asha" in t for t in to(fresh, BUILDER_PHONE))
+    assert any("crm@partner.example" == to_ for to_, _t in fresh.sent)          # emailed too
+    assert any("NEW SITE VISIT" in t for t in to(fresh, HOST_PHONE))            # builder's site staff hosts it
+    # registering again for the same project doesn't spam the builder
+    assert visits and __import__("salesagent.partners", fromlist=["x"]).register_client(lead["id"], p["id"])["already"]
+    # builder confirms
+    assert "confirmed" in events.staff_command(BUILDER_PHONE, f"ACK R{reg['id']}")
+    assert db.q1("SELECT status FROM registrations WHERE id = ?", (reg["id"],))["status"] == "acknowledged"
+    # builder chatter is not turned into a customer lead
+    assert "ACK R" in events.staff_command(BUILDER_PHONE, "hello, call me")
+    # builder's site staff can submit the visit outcome
+    v = db.q1("SELECT id FROM site_visits WHERE lead_id = ?", (lead["id"],))
+    fresh.fake.queue([tool_use("send_message", text="Thanks for visiting Lakeview!", channel="whatsapp")])
+    assert "recorded" in events.staff_command(HOST_PHONE, f"VISITED {v['id']} hot liked A-502")
+
+
+def test_builder_dispute_alerts_owner(fresh):
+    from salesagent import partners
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore")
+    r = partners.register_client(lead["id"], p["id"])
+    reply = events.staff_command(BUILDER_PHONE, f"DISPUTE R{r['registration_id']} already visited us directly")
+    assert "disputed" in reply
+    assert any("DISPUTED registration" in t for t in to(fresh, owner_phone()))
+    assert events.staff_command("+919812345678", f"ACK R{r['registration_id']}") is None   # strangers can't ACK
+
+
+def test_partner_booking_pays_builder_and_records_commission(fresh):
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore")
+    pipeline.move(lead["id"], "qualified", "system")
+    ctx = tools.ToolContext(lead_id=lead["id"], event="t")
+    out, _ = tools.run_tool(ctx, "propose_offer", {**OFFER, "project": "Lakeview Heights", "unit_type": "2BHK",
+                                                   "unit_no": "A-502", "offered_price": 9000000})
+    assert '"pending_approval"' in out
+    assert any("your commission at this price" in t for t in to(fresh, owner_phone()))
+    offer = db.q1("SELECT * FROM offers WHERE lead_id = ?", (lead["id"],))
+    unit = db.q1("SELECT * FROM units WHERE unit_no = 'A-502'")
+    assert offer["unit_id"] == unit["id"]
+    fresh.fake.queue([tool_use("send_message", text="Approved!", channel="whatsapp")])
+    events.staff_command(owner_phone(), f"APPROVE {offer['id']}")
+    tools.run_tool(ctx, "request_booking_confirmation", {"offer_id": offer["id"], "token_amount": 0, "notes": "ok"})
+    booking = db.q1("SELECT * FROM bookings WHERE lead_id = ?", (lead["id"],))
+    assert booking["unit_id"] == unit["id"]
+    fresh.fake.queue([tool_use("share_payment_details", booking_id=booking["id"])])
+    events.staff_command(owner_phone(), f"CONFIRM B{booking['id']}")
+    assert db.q1("SELECT status FROM units WHERE id = ?", (unit["id"],))["status"] == "held"
+    pay_msgs = [t for t in to(fresh, lead["phone"]) if "A/c no" in t]
+    assert pay_msgs and "999888777" in pay_msgs[-1] and "Prestige Partner" in pay_msgs[-1]
+    assert get_settings().booking["account_number"] not in pay_msgs[-1]          # not our own account
+    # held unit is no longer offered to other buyers
+    other = mk_lead(name="Other", phone="9123456789", city="Bangalore")
+    found = json.loads(tools.run_tool(tools.ToolContext(other["id"], "t"), "search_properties", {})[0])
+    assert "A-502" not in [m["unit_no"] for m in found["matches"]]
+    fresh.fake.queue([tool_use("send_message", text="Congratulations!", channel="whatsapp")])
+    reply = events.staff_command(owner_phone(), f"PAID B{booking['id']} 2L UTR9")
+    assert "BOOKED" in reply and "Commission C1" in reply
+    assert db.q1("SELECT status FROM units WHERE id = ?", (unit["id"],))["status"] == "booked"
+    c = db.q1("SELECT * FROM commissions")
+    assert c["amount"] == 180000 and c["deal_value"] == 9000000 and c["status"] == "earned"
+    from salesagent import partners
+    partners.update_commission(c["id"], "invoiced", "INV-7")
+    partners.update_commission(c["id"], "collected", amount=180000)
+    t = partners.commission_totals()
+    assert t["collected"] == 180000 and t["outstanding"] == 0
+
+
+def test_payment_details_refused_when_builder_bank_missing(fresh):
+    p = _partner_setup()
+    db.q("UPDATE builders SET bank_account = '' WHERE id = ?", (p["builder_id"],))
+    lead = mk_lead(city="Bangalore")
+    unit = db.q1("SELECT * FROM units WHERE unit_no = 'A-101'")
+    oid = db.insert("offers", {"lead_id": lead["id"], "project": p["name"], "unit_type": "2BHK", "unit_id": unit["id"],
+                               "offered_price": 8800000, "list_price": 8800000, "status": "approved"})
+    bid = db.insert("bookings", {"lead_id": lead["id"], "offer_id": oid, "unit_id": unit["id"], "status": "confirmed",
+                                 "token_amount": 200000})
+    out, is_err = tools.run_tool(tools.ToolContext(lead["id"], "t"), "share_payment_details", {"booking_id": bid})
+    assert is_err and "escalate" in out
+
+
+def test_registration_renewal_before_expiry(fresh):
+    from salesagent import partners
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore")
+    r = partners.register_client(lead["id"], p["id"])
+    db.update("registrations", r["registration_id"],
+              {"valid_until": (get_settings().now() + timedelta(days=3)).isoformat()})
+    assert partners.renew_expiring() == 1
+    rows = db.q("SELECT status FROM registrations WHERE lead_id = ? ORDER BY id", (lead["id"],))
+    assert [x["status"] for x in rows] == ["expired", "sent"]
+    assert partners.renew_expiring() == 0
+
+
+def test_units_csv_import(tmp_path):
+    from salesagent import inventory
+    p = _partner_setup()
+    csv_path = tmp_path / "u.csv"
+    csv_path.write_text("Flat No,BHK,Floor,Facing,Size,Price,Min Price,Status\n"
+                        "C-301,3 BHK,3,North,1600,1.2cr,1.1cr,available\n"
+                        "A-101,2BHK,1,East,1200,90L,84L,available\n"
+                        "C-302,3BHK,3,North,1600,1.1cr,1.2cr,available\n"
+                        ",3BHK,,,,,,\n")
+    res = inventory.import_units_csv(p["id"], str(csv_path))
+    assert res["added"] == 1 and res["updated"] == 1 and len(res["errors"]) == 2
+    u = db.q1("SELECT * FROM units WHERE unit_no = 'C-301'")
+    assert u["unit_type"] == "3BHK" and u["list_price"] == 12000000 and u["floor_price"] == 11000000
+    assert db.q1("SELECT list_price FROM units WHERE unit_no = 'A-101'")["list_price"] == 9000000
+
+
+def test_inventory_pages(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    p = _partner_setup()
+    a = ("owner", "pw")
+    with TestClient(app) as c:
+        home = c.get("/inventory", auth=a).text
+        assert "Bangalore" in home and "Chennai" in home and "Prestige Partner" in home
+        assert "Lakeview Heights" in c.get(f"/inventory/project/{p['id']}", auth=a).text
+        assert c.get("/inventory/builder/new", auth=a).status_code == 200
+        r = c.post("/inventory/builder/new", auth=a, data={"name": "Brigade Partner", "commission_type": "pct",
+                                                           "commission_value": "1.5", "contact_phone": "9876500099",
+                                                           "bank_ifsc": "hdfc0001"})
+        assert r.status_code == 200
+        b = db.q1("SELECT * FROM builders WHERE name = 'Brigade Partner'")
+        assert b["commission_value"] == 1.5 and b["contact_phone"] == "+919876500099" and b["bank_ifsc"] == "HDFC0001"
+        r = c.post("/inventory/project/new", auth=a, data={"name": "Brigade Orchards", "builder_id": str(b["id"]),
+                                                           "city": "bangalore", "locality": "Devanahalli",
+                                                           "visit_days[]": ["5", "6"], "visit_from": "09:00",
+                                                           "visit_to": "17:00", "active": "1"})
+        newp = db.q1("SELECT * FROM inv_projects WHERE name = 'Brigade Orchards'")
+        assert newp["city"] == "Bangalore" and newp["visit_days"] == "5,6" and newp["visit_hours"] == "09:00-17:00"
+        c.post(f"/inventory/project/{newp['id']}/units", auth=a, data={"unit_type": "3bhk", "list_price": "1.4cr",
+                                                                      "floor_price": "1.3cr", "quantity": "5"})
+        u = db.q1("SELECT * FROM units WHERE project_id = ?", (newp["id"],))
+        assert u["quantity"] == 5 and u["list_price"] == 14000000
+        bad = c.post(f"/inventory/project/{newp['id']}/units", auth=a,
+                     data={"unit_type": "2BHK", "list_price": "50L", "floor_price": "60L"})
+        assert "floor price is above" in bad.text
+        assert "Commission summary" in c.get("/commissions", auth=a).text
+        assert "Client registrations" in c.get("/registrations", auth=a).text
+        assert "unit_no,unit_type" in c.get("/inventory/units-template.csv", auth=a).text

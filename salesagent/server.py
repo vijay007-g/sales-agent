@@ -37,6 +37,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI Sales Agent", lifespan=lifespan)
 
 
+def _include_routers() -> None:
+    from .web_inventory import router as inventory_router
+    app.include_router(inventory_router)
+
+
 def owner_auth(creds: HTTPBasicCredentials = Depends(security)) -> str:
     pw = env("DASHBOARD_PASSWORD").strip().strip('"').strip("'")
     if not pw:
@@ -168,7 +173,8 @@ def page(title: str, body: str) -> HTMLResponse:
 <link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
-<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
+<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
+<a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
 <a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
 <main>{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
 
@@ -191,8 +197,8 @@ def overview(_: str = Depends(owner_auth)):
     s = get_settings()
     orows = ""
     for o in offers:
-        unit = s.unit(o["project"], o["unit_type"]) or {}
-        floor = unit.get("floor_price")
+        unit = db.q1("SELECT floor_price FROM units WHERE id = ?", (o["unit_id"],)) if o.get("unit_id") else None
+        floor = (unit or {}).get("floor_price")
         orows += f"""<tr><td>#{o['id']}<br>{'<span class="pill hot">below floor</span>' if o['status'] == 'blocked_floor' else ''}</td>
 <td><a href="/leads/{o['lead_id']}">{escape(o['name'] or '')}</a><br>score {o['score']} {_temp(o['temperature'])}</td>
 <td>{escape(o['unit_type'])} · {escape(o['project'])}<br>List {pricing.fmt_money(o['list_price'])}<br>
@@ -234,8 +240,28 @@ Floor {pricing.fmt_money(floor)} · Customer ask {pricing.fmt_money(o['customer_
 <div class="card"><h3>Advance payments awaited ({len(pays)})</h3><table>{prows or '<tr><td>None.</td></tr>'}</table>
 <small>Mark received only after checking the builder's bank account.</small></div>
 <div class="card"><h3>Message drafts waiting for salespeople ({len(drafts)})</h3><table>{drows or '<tr><td>None.</td></tr>'}</table></div>
+{_partner_alerts()}
 <div class="card"><h3>Leads needing you ({len(human)})</h3><table>{hrows or '<tr><td>None.</td></tr>'}</table></div>"""
     return page("Overview", body)
+
+
+def _partner_alerts() -> str:
+    from . import partners
+    disputed = db.q("SELECT r.id, r.lead_id, r.builder_note, l.name FROM registrations r JOIN leads l ON "
+                    "l.id = r.lead_id WHERE r.status = 'disputed' ORDER BY r.id DESC LIMIT 20")
+    t = partners.commission_totals()
+    if not disputed and not t["outstanding"]:
+        return ""
+    rows = "".join(f'<li>R{d["id"]} <a href="/leads/{d["lead_id"]}">{escape(d["name"] or "")}</a>: '
+                   f'{escape(d["builder_note"] or "")}</li>' for d in disputed)
+    html = '<div class="card"><h3>Channel partner</h3>'
+    if rows:
+        html += f"<p><b>Builder disputed these client registrations:</b></p><ul>{rows}</ul>"
+    if t["outstanding"]:
+        overdue = f" — overdue {pricing.fmt_money(t['overdue'])}" if t["overdue"] else ""
+        html += (f"<p>Commission outstanding: <b>{pricing.fmt_money(t['outstanding'])}</b>{overdue}"
+                 f' · <a href="/commissions">Commissions</a></p>')
+    return html + "</div>"
 
 
 @app.post("/offers/{offer_id}/decide")
@@ -266,6 +292,7 @@ def lead_list(stage: str = "", _: str = Depends(owner_auth)):
     body = f"""<div class="card"><form>Stage <select name="stage"><option value="">all</option>{opts}</select> <button>Filter</button></form></div>
 <div class="card"><h3>Add a lead (walk-in, call, referral)</h3><form method="post" action="/leads/new">
 <input name="name" placeholder="Name" required> <input name="phone" placeholder="Phone" required> <input name="email" placeholder="Email">
+<input name="city" placeholder="City (Chennai / Bangalore)">
 <select name="source"><option>walk_in</option><option>referral</option><option>website</option><option>portal</option><option>meta_ads</option><option>google_ads</option><option>other</option></select>
 <input name="unit_type" placeholder="2BHK / 3BHK"> <input name="budget_max" placeholder="Budget"> <input name="notes" placeholder="Notes">
 <label><input type="checkbox" name="consent" checked> Customer agreed to be contacted</label> <button>Add & let AI contact</button></form>
@@ -276,10 +303,12 @@ def lead_list(stage: str = "", _: str = Depends(owner_auth)):
 
 
 @app.post("/leads/new")
-def add_lead(name: str = Form(...), phone: str = Form(...), email: str = Form(""), source: str = Form("walk_in"),
+def add_lead(name: str = Form(...), phone: str = Form(...), email: str = Form(""), city: str = Form(""),
+             source: str = Form("walk_in"),
              unit_type: str = Form(""), budget_max: str = Form(""), notes: str = Form(""), consent: str = Form(""),
              _: str = Depends(owner_auth)):
-    lead, created = leads.upsert_lead({"name": name, "phone": phone, "email": email, "source": source,
+    lead, created = leads.upsert_lead({"name": name, "phone": phone, "email": email, "city": city.title(),
+                                       "source": source,
                                        "unit_type": unit_type, "budget_max": events.parse_amount(budget_max)
                                        if budget_max else None}, consent=bool(consent))
     if notes:
@@ -334,7 +363,7 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
         f"<tr><th>{escape(lbl)}</th><td>{escape(str(json.loads(v['form_data']).get(f, '')))}</td></tr>"
         for f, lbl, _, _ in visits.VISIT_FORM) + "</table></details>" for v in vis if v.get("form_data"))
     prof = "".join(f"<tr><th>{k}</th><td>{escape(str(lead[k]))}</td></tr>" for k in (
-        "phone", "email", "rm_name", "source", "campaign", "stage", "score", "temperature", "project_interest", "unit_type",
+        "phone", "email", "city", "rm_name", "source", "campaign", "stage", "score", "temperature", "project_interest", "unit_type",
         "budget_min", "budget_max", "timeline", "purpose", "financing", "language", "next_followup_at",
         "followup_purpose", "opted_out", "needs_human") if lead[k] not in (None, ""))
     pause = (f'<form method="post" action="/leads/{lead_id}/resume"><input name="note" placeholder="note for AI"><button>Hand back to AI</button></form>'
@@ -345,6 +374,7 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
 <div class="card"><table>{prof}</table>{pause}</div>
 <div class="card"><h4>Conversion strategy</h4><div style="font-size:14px">{strat_html}</div></div>
 <div class="card"><h4>Calls</h4><table>{crows or '<tr><td>none</td></tr>'}</table></div>
+{_lead_registrations(lead_id)}
 <div class="card"><h4>AI's notes</h4><div style="white-space:pre-wrap;font-size:14px">{escape(lead['memory'] or '-')}</div></div>
 <div class="card"><h4>Site / office visits</h4><table>{vrows or '<tr><td>none</td></tr>'}</table>{reports}</div>
 <div class="card"><h4>Offers</h4><table>{orows or '<tr><td>none</td></tr>'}</table></div></div>
@@ -361,6 +391,11 @@ AUTO_REFRESH = """<script>setInterval(function(){var a=document.activeElement;
 if(a&&/INPUT|TEXTAREA|SELECT/.test(a.tagName))return;
 var f=document.querySelectorAll('textarea,input[type=text],input:not([type])');
 for(var i=0;i<f.length;i++){if(f[i].value)return;}location.reload();},12000);</script>"""
+
+
+def _lead_registrations(lead_id: int) -> str:
+    from .web_inventory import lead_section
+    return lead_section(lead_id)
 
 
 def _drafts_inline(lead_id: int) -> str:
@@ -449,7 +484,8 @@ def campaigns(_: str = Depends(owner_auth)):
 <h4>Referral offer</h4><p>{escape(d.get('referral_offer_idea', ''))}</p>
 <h4>2-week content calendar</h4><ol>{''.join(f'<li>{escape(x)}</li>' for x in d.get('two_week_content_calendar', []))}</ol>
 <h4>Budget</h4><p>{escape(d.get('budget_split_advice', ''))}</p><h4>Compliance</h4><p>{escape(d.get('compliance_notes', ''))}</p>{approve}</div>"""
-    projects = "".join(f"<option>{escape(p['name'])}</option>" for p in get_settings().projects)
+    from . import inventory
+    projects = "".join(f"<option>{escape(p['name'])}</option>" for p in inventory.list_projects())
     form = f"""<div class="card"><h3>Create a lead-generation campaign</h3><form method="post" action="/campaigns/new">
 <select name="project">{projects}</select> <select name="channel"><option>Meta (Facebook/Instagram) lead ads</option>
 <option>Google search ads</option><option>Property portals</option><option>WhatsApp broadcast (opted-in list)</option><option>Instagram organic</option></select>
@@ -702,16 +738,17 @@ def test_page(_: str = Depends(owner_auth)):
 lead's page.{'' if env('ANTHROPIC_API_KEY') else ' <b>Set ANTHROPIC_API_KEY first — the AI cannot reply without it.</b>'}</p>
 <form method="post" action="/test/new"><input name="name" placeholder="Customer name" value="" required>
 <select name="source">{sources}</select> <input name="unit_type" placeholder="2BHK / 3BHK">
-<input name="budget" placeholder="Budget e.g. 75L"><button>Create test lead</button></form></div>
+<input name="budget" placeholder="Budget e.g. 75L"> <input name="city" placeholder="City">
+<button>Create test lead</button></form></div>
 <div class="card"><h3>Test leads</h3><table>{trs or '<tr><td>None yet.</td></tr>'}</table></div>""")
 
 
 @app.post("/test/new")
 def test_new(name: str = Form(...), source: str = Form("meta_ads"), unit_type: str = Form(""), budget: str = Form(""),
-             _: str = Depends(owner_auth)):
+             city: str = Form(""), _: str = Depends(owner_auth)):
     n = db.q1("SELECT COUNT(*) n FROM leads WHERE campaign = 'test'")["n"]
     lead, _created = leads.upsert_lead({"name": name, "phone": f"+9190000{n + 1:05d}", "source": source,
-                                        "campaign": "test", "unit_type": unit_type,
+                                        "campaign": "test", "unit_type": unit_type, "city": city.title(),
                                         "budget_max": events.parse_amount(budget) if budget else None})
     events.dispatch(events.new_lead, lead["id"])
     return RedirectResponse(f"/leads/{lead['id']}", status_code=303)
@@ -769,3 +806,6 @@ def icon():
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+_include_routers()

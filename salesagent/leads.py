@@ -7,18 +7,17 @@ from typing import Iterable
 from . import db
 from .config import get_settings
 
-FIELDS = ["name", "phone", "email", "source", "campaign", "preferred_channel", "language",
+FIELDS = ["name", "phone", "email", "source", "campaign", "preferred_channel", "language", "city",
           "project_interest", "unit_type", "budget_min", "budget_max", "timeline", "purpose",
           "location_pref", "financing"]
 
 
 def _int(v) -> int | None:
+    """Budgets from forms/CSVs: 9500000, 95L, 95 lakhs, 1.2cr, or a bare 95 (= lakhs)."""
     if v in (None, ""):
         return None
-    try:
-        return int(float(str(v).replace(",", "").strip()))
-    except ValueError:
-        return None
+    from .events import parse_amount
+    return parse_amount(str(v))
 
 
 def upsert_lead(data: dict, consent: bool = True) -> tuple[dict, bool]:
@@ -66,7 +65,8 @@ def import_csv(path: str, source: str = "csv_import") -> dict:
         "email": ["email", "email address", "e-mail"],
         "budget_max": ["budget", "budget_max", "max budget"],
         "unit_type": ["unit_type", "bhk", "configuration", "property type"],
-        "location_pref": ["location", "locality", "city"],
+        "location_pref": ["location", "locality"],
+        "city": ["city"],
         "project_interest": ["project", "project name"],
         "campaign": ["campaign", "campaign_name", "ad name"],
         "timeline": ["timeline", "when", "purchase timeline"],
@@ -97,7 +97,8 @@ def _budget_fit(lead: dict) -> float:
     budget = lead.get("budget_max") or lead.get("budget_min")
     if not budget:
         return 0.3  # unknown
-    prices = [u["list_price"] for p in get_settings().projects for u in p["units"]]
+    from . import inventory
+    prices = inventory.all_list_prices()
     if not prices:
         return 0.5
     cheapest = min(prices)

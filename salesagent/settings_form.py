@@ -101,6 +101,8 @@ def _rm(i, r):
             + sel(f"{p}[message_mode]", "AI messages", r.get("message_mode", "review"),
                   [("review", "Salesperson approves each one"), ("auto", "Send automatically")])
             + inp(f"{p}[languages]", "Languages", ", ".join(r.get("languages") or []), placeholder="English, Tamil")
+            + inp(f"{p}[cities]", "Cities they handle", ", ".join(r.get("cities") or []), placeholder="Chennai",
+                  hint="Leads from these cities go to them. Empty = any city")
             + inp(f"{p}[max_active_leads]", "Max active leads", r.get("max_active_leads", 80), "number")
             + inp(f"{p}[whatsapp_phone_number_id]", "WhatsApp Business number ID", r.get("whatsapp_phone_number_id"),
                   hint="From Meta, later. Leave empty for now.")
@@ -177,6 +179,8 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
 {inp("business[languages]", "Languages customers use", ", ".join(b.get("languages") or []), placeholder="English, Tamil, Hindi")}
 {sel("business[timezone]", "Time zone", tz, [(t, t) for t in tzs])}
 {inp("business[currency]", "Currency", b.get("currency", "INR"))}
+{inp("business[assistant_intro]", "How the AI introduces itself", b.get("assistant_intro") or "Saikrupa's assistant",
+     hint="Used in the first message, e.g. \"Hi Ravi, I'm Saikrupa's assistant, working with Anitha\"")}
 </div></div>
 
 <div class="card"><h3>You (management) <small>approvals, booking confirmations, daily summary</small></h3><div class="fields">
@@ -193,11 +197,11 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
 {repeat([_site(i, sp) for i, sp in enumerate(raw.get("site_persons") or [])], _site("__I__", {}), "Add site person", "__I__")}
 </div>
 
-<div class="card"><h3>Projects & prices</h3>
-{repeat([_project(i, pr) for i, pr in enumerate(raw.get("projects") or [])], _project("__I__", {}), "Add project", "__I__")}
-</div>
+<div class="card"><h3>Projects, units & partner builders</h3><p>Managed on the
+<a href="/inventory">Inventory page</a>: your own and partner projects in every city, unit-by-unit availability,
+spreadsheet upload, builders' commission and contacts.</p></div>
 
-<div class="card"><h3>Booking advance & payment <small>customers pay only into this company account or at your office</small></h3><div class="fields">
+<div class="card"><h3>Booking advance & payment <small>for your own projects (partner builders' accounts are on the Inventory page)</small></h3><div class="fields">
 {money("booking[advance_amount]", "Standard booking advance", bk.get("advance_amount"))}
 {inp("booking[payee_name]", "Account name", bk.get("payee_name"))}
 {inp("booking[bank_name]", "Bank", bk.get("bank_name"))}
@@ -303,7 +307,8 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
     b = t.get("business", {})
     raw["business"] = {**old.get("business", {}), "name": _s(b, "name"), "website": _s(b, "website"),
                        "languages": _csv(b, "languages") or ["English"], "timezone": _s(b, "timezone") or "Asia/Kolkata",
-                       "currency": _s(b, "currency") or "INR"}
+                       "currency": _s(b, "currency") or "INR",
+                       "assistant_intro": _s(b, "assistant_intro") or "Saikrupa's assistant"}
     if not raw["business"]["name"]:
         errs.append("Company name is required.")
     o = t.get("owner", {})
@@ -317,35 +322,14 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
         team.append({"name": _s(r, "name"), "phone": phone(r.get("phone"), f"Salesperson {_s(r, 'name')}"),
                      "whatsapp_phone_number_id": _s(r, "whatsapp_phone_number_id"),
                      "message_mode": "auto" if _s(r, "message_mode") == "auto" else "review",
-                     "languages": _csv(r, "languages"), "style": _s(r, "style"),
+                     "languages": _csv(r, "languages"), "cities": _csv(r, "cities"), "style": _s(r, "style"),
                      "max_active_leads": num(r.get("max_active_leads"), f"{_s(r, 'name')} max leads") or 80})
     raw["sales_team"] = team
 
-    projects = []
-    for pr in (t.get("projects") or {}).values():
-        if not _s(pr, "name"):
-            continue
-        name = _s(pr, "name")
-        units = []
-        for u in (pr.get("units") or {}).values():
-            if not _s(u, "type"):
-                continue
-            label = f"{name} {_s(u, 'type')}"
-            units.append({"type": _s(u, "type"), "size_sqft": num(u.get("size_sqft"), f"{label} size"),
-                          "carpet_sqft": num(u.get("carpet_sqft"), f"{label} carpet area"),
-                          "list_price": amt(u.get("list_price"), f"{label} list price", True),
-                          "floor_price": amt(u.get("floor_price"), f"{label} floor price", True),
-                          "auto_approve_discount_pct": num(u.get("auto_approve_discount_pct"), f"{label} discount") or 0,
-                          "available": num(u.get("available"), f"{label} units available") or 0})
-        if not units:
-            errs.append(f"Project {name}: add at least one unit type.")
-        projects.append({"name": name, "location": _s(pr, "location"), "type": _s(pr, "type"),
-                         "status": _s(pr, "status"), "rera": _s(pr, "rera"), "highlights": _lines(pr, "highlights"),
-                         "payment_plans": _lines(pr, "payment_plans"), "units": units,
-                         "free_concessions": _lines(pr, "free_concessions"),
-                         "approval_concessions": _lines(pr, "approval_concessions")})
-    raw["projects"] = projects
-    names = {p["name"] for p in projects}
+    if "projects" in t:   # older form posts (kept for compatibility)
+        pass
+    from . import inventory
+    names = set(inventory.project_names())
 
     sites = []
     for sp in (t.get("site_persons") or {}).values():

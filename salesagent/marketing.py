@@ -60,12 +60,13 @@ def _wins_summary() -> str:
 
 def generate_campaign(project_name: str, channel: str, brief: str = "", monthly_budget: str = "") -> dict:
     s = get_settings()
-    proj = s.project(project_name)
+    from . import inventory
+    proj = inventory.get_project(project_name)
     if not proj:
         raise ValueError(f"Unknown project {project_name}")
-    facts = {**{k: v for k, v in proj.items() if k != "units"},
-             "units": [{**u, "list_price_fmt": pricing.fmt_money(u["list_price"])}
-                       for u in pricing.public_unit_info(proj)]}
+    facts = inventory.project_facts(proj, max_units=0)
+    for t in facts["unit_types"]:
+        t["price_range"] = f"{pricing.fmt_money(t['price_min'])}–{pricing.fmt_money(t['price_max'])}"
     prompt = f"""Create a lead-generation campaign for this real-estate project.
 
 <project>{json.dumps(facts, default=str)}</project>

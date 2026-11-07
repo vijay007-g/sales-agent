@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS leads (
     lost_reason TEXT,
     rm_name TEXT,
     strategy TEXT,
+    city TEXT,
     created_at TEXT, updated_at TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_phone ON leads(phone) WHERE phone IS NOT NULL AND phone != '';
@@ -62,7 +63,7 @@ CREATE TABLE IF NOT EXISTS site_visits (
 
 CREATE TABLE IF NOT EXISTS offers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER, project TEXT, unit_type TEXT, unit_no TEXT,
+    lead_id INTEGER, project TEXT, unit_type TEXT, unit_no TEXT, unit_id INTEGER, project_id INTEGER,
     list_price INTEGER, offered_price INTEGER, discount_pct REAL,
     concessions TEXT, payment_terms TEXT,
     customer_ask INTEGER, justification TEXT,
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS offers (
 
 CREATE TABLE IF NOT EXISTS bookings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER, offer_id INTEGER,
+    lead_id INTEGER, offer_id INTEGER, unit_id INTEGER,
     status TEXT DEFAULT 'awaiting_owner',
     token_amount INTEGER, notes TEXT,
     payment_mode TEXT, amount_paid INTEGER, payment_ref TEXT, paid_at TEXT,
@@ -94,6 +95,54 @@ CREATE TABLE IF NOT EXISTS drafts (
     lead_id INTEGER, rm_name TEXT, channel TEXT, subject TEXT, text TEXT,
     status TEXT DEFAULT 'pending',
     created_at TEXT, decided_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS builders (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT, is_own INTEGER DEFAULT 0,
+    contact_name TEXT, contact_phone TEXT, contact_email TEXT,
+    commission_type TEXT DEFAULT 'pct', commission_value REAL DEFAULT 0,
+    payment_terms_days INTEGER DEFAULT 45, registration_validity_days INTEGER DEFAULT 90,
+    bank_payee TEXT, bank_name TEXT, bank_account TEXT, bank_ifsc TEXT, upi_id TEXT,
+    verify_phone TEXT, office_address TEXT,
+    notes TEXT, active INTEGER DEFAULT 1, created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS inv_projects (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    builder_id INTEGER, name TEXT, city TEXT, locality TEXT, type TEXT,
+    status TEXT, possession TEXT, rera TEXT,
+    highlights TEXT, payment_plans TEXT, approval_concessions TEXT, free_concessions TEXT,
+    site_host_name TEXT, site_host_phone TEXT, visit_hours TEXT DEFAULT '10:00-18:00',
+    visit_days TEXT DEFAULT '0,1,2,3,4,5,6', max_visits_per_day INTEGER DEFAULT 6,
+    commission_type TEXT, commission_value REAL,
+    active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS units (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER, unit_no TEXT, unit_type TEXT, floor TEXT, facing TEXT,
+    size_sqft INTEGER, carpet_sqft INTEGER, list_price INTEGER, floor_price INTEGER,
+    quantity INTEGER DEFAULT 1,
+    status TEXT DEFAULT 'available',
+    notes TEXT, updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_units_project ON units(project_id);
+
+CREATE TABLE IF NOT EXISTS registrations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER, project_id INTEGER, builder_id INTEGER,
+    status TEXT DEFAULT 'sent', reason TEXT, message TEXT,
+    sent_at TEXT, valid_until TEXT, ack_at TEXT, builder_note TEXT
+);
+
+CREATE TABLE IF NOT EXISTS commissions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    booking_id INTEGER, lead_id INTEGER, project_id INTEGER, builder_id INTEGER, unit_id INTEGER,
+    deal_value INTEGER, amount INTEGER,
+    status TEXT DEFAULT 'earned',
+    invoice_no TEXT, invoiced_at TEXT, due_at TEXT,
+    collected_amount INTEGER, collected_at TEXT, notes TEXT, created_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS insights (
@@ -143,6 +192,8 @@ def conn() -> sqlite3.Connection:
         for st in stmts:
             if not st.startswith("CREATE TABLE"):
                 _conn.execute(st)
+        from . import inventory
+        inventory.seed_from_config()
     return _conn
 
 

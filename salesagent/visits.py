@@ -33,8 +33,8 @@ VISIT_FORM = [
 
 
 def _persons_for(project: str) -> list[dict]:
-    s = get_settings()
-    return [p for p in s.site_persons if not p.get("projects") or project in p["projects"]]
+    from . import inventory
+    return inventory.hosts_for(project)
 
 
 def _hm(day: datetime, hhmm: str) -> datetime:
@@ -98,9 +98,13 @@ def _parse_when(when_iso: str) -> datetime | None:
 
 
 def book(lead_id: int, project: str, when_iso: str, notes: str = "") -> dict:
-    s = get_settings()
-    if not s.project(project):
+    from . import inventory, partners
+    proj = inventory.get_project(project)
+    if not proj:
         return {"ok": False, "error": f"Unknown project '{project}'."}
+    project = proj["name"]
+    if not _persons_for(project):
+        return {"ok": False, "error": f"No site host is set up for {project}. Escalate to a human to arrange the visit."}
     when = _parse_when(when_iso)
     if when is None:
         return {"ok": False, "error": "Invalid datetime."}
@@ -109,7 +113,7 @@ def book(lead_id: int, project: str, when_iso: str, notes: str = "") -> dict:
     if not match:
         return {"ok": False, "error": "That slot is not available.",
                 "available_that_day": [x["time"] for x in slots][:10]}
-    person = next(p for p in s.site_persons if p["name"] == match["site_person"])
+    person = next(p for p in _persons_for(project) if p["name"] == match["site_person"])
     for v in db.q("SELECT id FROM site_visits WHERE lead_id = ? AND kind = 'site' AND status = 'scheduled'",
                   (lead_id,)):
         db.update("site_visits", v["id"], {"status": "rescheduled"})
@@ -133,7 +137,14 @@ def book(lead_id: int, project: str, when_iso: str, notes: str = "") -> dict:
         f"Quick reply also works: VISITED {vid} <hot/warm/cold> <notes>  or  NOSHOW {vid}"))
     db.audit(lead_id, "agent", "visit_booked", {"visit_id": vid, "when": match["time"],
                                                "site_person": person["name"]})
-    return {"ok": True, "visit_id": vid, "when": match["time"], "site_person": person["name"]}
+    out = {"ok": True, "visit_id": vid, "when": match["time"], "site_person": person["name"]}
+    if not proj["is_own"]:
+        reg = partners.register_client(lead_id, proj["id"], reason=f"site visit #{vid} on {when:%d %b %Y}")
+        out["partner_project"] = (f"{project} is a partner project by {proj['builder']}. The client has been "
+                                  f"registered with the builder in writing (R{reg.get('registration_id')}). Let the "
+                                  "customer know the builder's site team will receive their name and number to host "
+                                  "the visit.")
+    return out
 
 
 def book_office(lead_id: int, when_iso: str, purpose: str) -> dict:

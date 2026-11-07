@@ -1,4 +1,4 @@
-# AI + Human Sales System (real estate): lead to booking
+# Saikrupa AI Realty — AI + human sales system (own projects + channel partner)
 
 An AI sales assistant works alongside your human sales team:
 
@@ -53,12 +53,36 @@ personally handling their enquiry. It then sets up a call.
 | **Booking** | Customer agrees → management `CONFIRM B5` → the AI sends the **official company bank details** (fixed text from config, never typed by the AI) and offers an **office visit** slot for paying in person. Payment call planned. When the customer says "paid", management is alerted to check the bank. Only `PAID B5 2L UTR123` marks the flat **booked**. |
 | **Learning** | Weekly (or on demand) the system studies won vs lost leads: conversations, call notes, visit reports, offers, how salespeople rewrote AI drafts, and conversion by source and ad variant. It produces a playbook (what works in messages and on calls, the best answer to each objection, who converts, what to stop, new campaign ideas, experiments). The playbook is used in every message, call brief and campaign. |
 
+## Channel partner: inventory, matchmaking, commission protection
+- **Inventory** (dashboard → Inventory): your own company and every **partner builder** (commission %, payment terms,
+  contact for client registration, and their bank account for customers' advance). Projects in any city
+  (Chennai, Bangalore, …) with a site host (your staff or the builder's site team), and **units** — one row per flat
+  (A-504, 5th floor, East) or one row per type with a count when a builder only shares numbers. Upload a CSV saved
+  from Excel (template on the page; prices like 75L / 1.2cr). Floor prices are never visible to the AI.
+- **Matchmaker:** the AI searches all live inventory by the buyer's city, budget, size, locality and possession
+  (`search_properties`), recommends the best 2–3 real units with reasons, and quotes details only from
+  `get_project_details`. Held and booked units disappear from search automatically.
+- **Client registration:** before every site visit to a partner project, the buyer is registered with that builder
+  in writing (WhatsApp + email, timestamped, "R12"). The builder replies `ACK R12` or `DISPUTE R12 <reason>`
+  (you're alerted on disputes). Registrations renew automatically before expiry while the buyer is active.
+  Pages: Registrations; each lead shows its registrations and a "Register with builder" button.
+- **Commission ledger:** when the advance is paid on a partner unit, a commission entry is created (deal value ×
+  builder's %, or fixed), due by the builder's payment terms. Mark Invoiced / Received / Dispute on the
+  Commissions page; overdue amounts are in the morning summary and a Monday reminder.
+- **Payments go to the right account:** for partner projects the AI sends the **builder's** official bank details
+  (fixed text from the builder's record); for your own projects, your company account from Settings.
+- **City routing:** set "Cities they handle" for each salesperson in Settings; leads from that city go to them.
+- **AI disclosure:** the AI introduces itself as "Saikrupa's assistant, working with <salesperson>" in the first
+  message, never pretends to be a person, and arranges a human immediately on request. Change the wording in
+  Settings → "How the AI introduces itself".
+
 ## WhatsApp commands
 ```
 Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
              PAID B3 2L UTR12345 | PAUSE 15 | RESUME 15 <note> | STATUS | LEAD 15
 Salesperson: TASKS | CALLED C12 <what happened> | NOANSWER C12 | SEND D4 | EDIT D4 <your text> | DROP D4
 Site person: TODAY | VISITED 9 hot <notes> | NOSHOW 9      (or the full visit-report form link)
+Builder:     ACK R12 | DISPUTE R12 <reason>                  (client registration replies)
 ```
 In **review mode** (`message_mode: review`, recommended for the first weeks), every AI message comes to the
 salesperson as a draft: `SEND D4`, or `EDIT D4 <better text>`. Edits are learned from. Switch to `auto` once
@@ -147,5 +171,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 21 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 39 end-to-end tests with a scripted fake model, no API key needed
 ```

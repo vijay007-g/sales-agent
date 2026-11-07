@@ -104,14 +104,29 @@ def tick() -> dict:
                 db.audit(None, "system", "approval_nudge", str(o["id"]))
                 stats["nudges"] += 1
 
-    # 5. weekly learning from won / lost leads (checked once a day)
+    # 5. channel partner housekeeping (once a day): renew expiring client registrations, chase overdue commissions
+    if not _sent_today("partners_check"):
+        db.audit(None, "system", "partners_check", "")
+        from . import partners
+        renewed = partners.renew_expiring()
+        overdue = db.q("SELECT c.id, c.amount, c.collected_amount, c.due_at, b.name builder FROM commissions c "
+                       "JOIN builders b ON b.id = c.builder_id WHERE c.status IN ('earned','invoiced','part_collected') "
+                       "AND c.due_at < ?", (now.isoformat(),))
+        if overdue and now.weekday() == 0:   # Monday reminder
+            lines = [f"C{c['id']} {c['builder']}: {pricing.fmt_money((c['amount'] or 0) - (c['collected_amount'] or 0))}"
+                     f" (due {c['due_at'][:10]})" for c in overdue[:15]]
+            channels.notify_staff(s.owner["phone"], "💼 Overdue commissions — follow up with the builders:\n"
+                                  + "\n".join(lines))
+        stats["registrations_renewed"] = renewed
+
+    # 6. weekly learning from won / lost leads (checked once a day)
     if not _sent_today("learning_check"):
         db.audit(None, "system", "learning_check", "")
         from . import learning
         if learning.due():
             events.dispatch(learning.learn)
 
-    # 6. morning digest for the owner
+    # 7. morning digest for the owner
     if now.time() >= time(9, 0) and not _sent_today("digest"):
         channels.notify_staff(s.owner["phone"], digest())
         db.audit(None, "system", "digest", "")
@@ -133,7 +148,16 @@ def digest() -> str:
     lines = [f"Good morning! {s.business['name']} sales digest", events.pipeline_summary(),
              f"New leads (24h): {new_24h}", f"Site visits today: {visits_today}",
              f"Drafts waiting for salespeople: {drafts}",
-             "Overdue calls: " + (", ".join(f"{o['rm_name']} {o['n']}" for o in overdue) or "none"), "Top leads:"]
+             "Overdue calls: " + (", ".join(f"{o['rm_name']} {o['n']}" for o in overdue) or "none")]
+    from . import partners
+    t = partners.commission_totals()
+    if t["earned"]:
+        lines.append(f"Commission outstanding: {pricing.fmt_money(t['outstanding'])}"
+                     + (f" (overdue {pricing.fmt_money(t['overdue'])})" if t["overdue"] else ""))
+    disputed = db.q1("SELECT COUNT(*) n FROM registrations WHERE status = 'disputed'")["n"]
+    if disputed:
+        lines.append(f"⚠️ Disputed client registrations: {disputed}")
+    lines.append("Top leads:")
     lines += [f"  #{h['id']} {h['name']} — {h['stage']} (score {h['score']})" for h in hot]
     return "\n".join(lines)
 

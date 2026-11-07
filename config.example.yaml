@@ -3,10 +3,11 @@
 # ============================================================
 
 business:
-  name: "Sunrise Developers"
+  name: "Saikrupa AI Realty"
+  assistant_intro: "Saikrupa's assistant"   # how the AI introduces itself (it always says it's an assistant)
   currency: "INR"
   timezone: "Asia/Kolkata"
-  languages: ["English", "Tamil", "Hindi"]   # replies follow the customer's language
+  languages: ["English", "Tamil", "Hindi", "Kannada"]   # replies follow the customer's language
   website: "https://example.com"
 
 # The owner / management approves every price change and confirms bookings.
@@ -24,6 +25,7 @@ sales_team:
     whatsapp_phone_number_id: ""           # Meta WhatsApp Cloud API number ID for customer messages
     message_mode: "review"                 # review = AI drafts, Anitha taps SEND; auto = AI sends directly
     languages: ["English", "Tamil"]
+    cities: ["Chennai"]                    # leads from these cities go to this person (empty = any city)
     style: "Warm, polite, uses 'sir/madam' with elders, short sentences, occasionally Tamil phrases."
     max_active_leads: 80
 
@@ -50,6 +52,8 @@ booking:
   office_days: [0, 1, 2, 3, 4, 5]
   office_visit_slots_per_hour: 2
 
+# Projects below are imported into the Inventory page on first start (own projects, type-level stock).
+# After that, manage projects, units and partner builders on the Inventory page.
 projects:
   - name: "Sunrise Meadows"
     location: "OMR, Chennai"
@@ -87,6 +91,7 @@ projects:
 
 agent:
   model: "claude-opus-5-5"
+  auto_approve_discount_pct: 0  # 0 = every discount needs management approval
   effort_routine: "medium"      # first contact, follow-ups
   effort_negotiation: "high"    # post-visit strategy, pricing, owner decisions
   max_tool_rounds: 14

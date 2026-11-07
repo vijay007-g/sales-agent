@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from . import channels, db, leads, pipeline, pricing, team, visits
+from . import channels, db, inventory, leads, pipeline, pricing, team, visits
 from .config import get_settings
 
 MAX_MESSAGES_PER_RUN = 3
@@ -40,6 +40,7 @@ TOOLS: list[dict] = [
             "made) - write it so a colleague could pick up the conversation."),
         "input_schema": _obj({
             "name": STR, "email": STR, "language": STR,
+            "city": {"type": "string", "description": "City they want to buy in, e.g. Chennai or Bangalore"},
             "project_interest": STR, "unit_type": STR,
             "budget_min": INT, "budget_max": INT,
             "timeline": {"type": "string", "description": "e.g. 'immediate', '3 months', '6+ months'"},
@@ -70,6 +71,28 @@ TOOLS: list[dict] = [
             "channel": {"type": "string", "enum": ["whatsapp", "email"]},
             "subject": {"type": "string", "description": "Email subject (email only)"},
         }, ["text", "channel"]),
+    },
+    {
+        "name": "search_properties",
+        "description": (
+            "Find real, currently available units across ALL our projects (own and partner builders) that fit "
+            "the customer. Use it before recommending anything, and whenever the budget, city, size or possession "
+            "need changes. Returns up to 8 units, best match first, with list price and why it matches. Recommend "
+            "the best 2-3 with a short reason each; never mention a project or unit that the search didn't return."),
+        "input_schema": _obj({
+            "city": STR, "budget_max": INT, "budget_min": INT,
+            "unit_type": {"type": "string", "description": "e.g. 2BHK; leave empty to see all sizes"},
+            "locality": {"type": "string", "description": "Preferred area, e.g. Vadapalani"},
+            "possession": {"type": "string", "enum": ["any", "ready", "within_1y"]},
+        }, []),
+    },
+    {
+        "name": "get_project_details",
+        "description": (
+            "All approved facts about one project: builder, RERA, highlights, payment plans, possession, every "
+            "available unit (number, floor, facing, size, price) and which extras are allowed. Use it before "
+            "answering detailed questions or naming a specific unit."),
+        "input_schema": _obj({"project": STR}, ["project"]),
     },
     {
         "name": "get_visit_slots",
@@ -207,7 +230,7 @@ TOOLS: list[dict] = [
 # ------------------------- implementations -------------------------
 
 def _update_lead_profile(ctx: ToolContext, a: dict) -> dict:
-    allowed = {"name", "email", "language", "project_interest", "unit_type", "budget_min", "budget_max",
+    allowed = {"name", "email", "language", "city", "project_interest", "unit_type", "budget_min", "budget_max",
                "timeline", "purpose", "location_pref", "financing", "temperature"}
     changes = {k: v for k, v in a.items() if k in allowed and v not in (None, "")}
     note = (a.get("memory_note") or "").strip()
@@ -281,19 +304,39 @@ def _book_office_visit(ctx: ToolContext, a: dict) -> dict:
     return visits.book_office(ctx.lead_id, a["datetime"], a.get("purpose", "Booking advance"))
 
 
-def payment_message(booking: dict) -> str:
+def payee_for(booking: dict) -> dict:
+    """Whose account the advance goes to: the partner builder for partner projects, else our company account."""
     b = get_settings().booking
-    amt = pricing.fmt_money(booking.get("token_amount") or b.get("advance_amount"))
-    lines = [f"Booking advance: {amt}", "Please pay ONLY to our company account:",
-             f"Account name: {b.get('payee_name', '')}", f"Bank: {b.get('bank_name', '')}",
-             f"A/c no: {b.get('account_number', '')}", f"IFSC: {b.get('ifsc', '')}"]
+    own = {"payee_name": b.get("payee_name", ""), "bank_name": b.get("bank_name", ""),
+           "account_number": b.get("account_number", ""), "ifsc": b.get("ifsc", ""), "upi_id": b.get("upi_id", ""),
+           "verify_phone": b.get("verify_phone", ""), "office_address": b.get("office_address", "")}
+    unit = db.q1("SELECT * FROM units WHERE id = ?", (booking.get("unit_id"),)) if booking.get("unit_id") else None
+    proj = inventory.get_project(unit["project_id"]) if unit else None
+    if not proj or proj["is_own"]:
+        return own
+    bl = inventory.builder_for(proj)
+    return {"payee_name": bl.get("bank_payee") or "", "bank_name": bl.get("bank_name") or "",
+            "account_number": bl.get("bank_account") or "", "ifsc": bl.get("bank_ifsc") or "",
+            "upi_id": bl.get("upi_id") or "", "verify_phone": bl.get("verify_phone") or bl.get("contact_phone") or "",
+            "office_address": bl.get("office_address") or "", "builder": bl.get("name", "")}
+
+
+def payment_message(booking: dict) -> str:
+    b = payee_for(booking)
+    amt = pricing.fmt_money(booking.get("token_amount") or get_settings().booking.get("advance_amount"))
+    lines = [f"Booking advance: {amt}",
+             f"Please pay ONLY to {'the builder ' + b['builder'] + chr(39) + 's' if b.get('builder') else 'our company'} "
+             "account:",
+             f"Account name: {b['payee_name']}", f"Bank: {b['bank_name']}",
+             f"A/c no: {b['account_number']}", f"IFSC: {b['ifsc']}"]
     if b.get("upi_id"):
         lines.append(f"UPI: {b['upi_id']}")
     lines += [f"Reference: Booking B{booking['id']}",
-              f"Before paying, you can verify these details by calling our office on {b.get('verify_phone', '')}. "
-              "We will never ask you to pay into a personal account.",
-              f"You can also pay at our office: {b.get('office_address', '')}. "
-              "Please share the payment receipt / UTR here once done."]
+              f"Before paying, you can verify these details by calling {b['verify_phone']}. "
+              "We will never ask you to pay into a personal account."]
+    if b.get("office_address"):
+        lines.append(f"You can also pay in person at: {b['office_address']}.")
+    lines.append("Please share the payment receipt / UTR here once done.")
     return "\n".join(lines)
 
 
@@ -304,12 +347,45 @@ def _share_payment_details(ctx: ToolContext, a: dict) -> dict:
     if bk["status"] != "confirmed":
         return {"ok": False, "error": f"Booking is '{bk['status']}'. Payment details are shared only after "
                                       "management confirms the booking."}
-    # Fixed text from config, delivered directly (not drafted) so it can't be altered.
+    payee = payee_for(bk)
+    if not (payee["payee_name"] and payee["account_number"] and payee["ifsc"]):
+        return {"ok": False, "error": "The bank details for this payee are not set up yet. Escalate to a human "
+                                      "(escalate_to_human) so management can share them; do not type any account "
+                                      "details yourself."}
+    # Fixed text from settings, delivered directly (not drafted) so it can't be altered.
     res = team.deliver(ctx.lead_id, payment_message(bk), "whatsapp", author="system")
     if res.get("ok"):
         db.audit(ctx.lead_id, "agent", "payment_details_shared", {"booking_id": bk["id"]})
     return {**res, "message": "Official payment details sent. Ask them to share the receipt/UTR after paying, "
                               "or to choose an office visit time."}
+
+
+def _search_properties(ctx: ToolContext, a: dict) -> dict:
+    lead = db.get_lead(ctx.lead_id)
+    res = inventory.search(city=a.get("city") or lead.get("city") or "",
+                           budget_max=a.get("budget_max") or lead.get("budget_max"),
+                           budget_min=a.get("budget_min") or lead.get("budget_min"),
+                           unit_type=a.get("unit_type") or "", locality=a.get("locality") or lead.get("location_pref") or "",
+                           possession=a.get("possession") or "any")
+    for r in res:
+        r["price"] = pricing.fmt_money(r["list_price"])
+    if not res:
+        return {"ok": True, "matches": [], "message": "Nothing available matches. Try a wider budget, another size, "
+                                                      "another locality or city, or 'any' possession — or tell the "
+                                                      "customer honestly and ask what they could flex on.",
+                "cities_we_cover": inventory.cities()}
+    return {"ok": True, "matches": res}
+
+
+def _get_project_details(ctx: ToolContext, a: dict) -> dict:
+    p = inventory.get_project(a["project"])
+    if not p or not p["active"]:
+        return {"ok": False, "error": "No such active project. Use search_properties.",
+                "projects": inventory.project_names()}
+    facts = inventory.project_facts(p)
+    for u in facts["available_units"]:
+        u["price"] = pricing.fmt_money(u["list_price"])
+    return {"ok": True, **facts}
 
 
 def _get_visit_slots(ctx: ToolContext, a: dict) -> dict:
@@ -361,7 +437,8 @@ def _request_booking_confirmation(ctx: ToolContext, a: dict) -> dict:
     if db.q1("SELECT id FROM bookings WHERE lead_id = ? AND status = 'awaiting_owner'", (ctx.lead_id,)):
         return {"ok": False, "error": "A booking is already waiting for the owner's confirmation."}
     price = o["owner_counter_price"] or o["offered_price"]
-    bid = db.insert("bookings", {"lead_id": ctx.lead_id, "offer_id": o["id"], "status": "awaiting_owner",
+    bid = db.insert("bookings", {"lead_id": ctx.lead_id, "offer_id": o["id"], "unit_id": o.get("unit_id"),
+                                 "status": "awaiting_owner",
                                  "token_amount": int(a.get("token_amount") or 0)
                                  or int(get_settings().booking.get("advance_amount", 0)),
                                  "notes": a.get("notes", ""), "created_at": db.now_iso()})
@@ -427,6 +504,8 @@ HANDLERS = {
     "update_lead_profile": _update_lead_profile,
     "set_stage": _set_stage,
     "send_message": _send_message,
+    "search_properties": _search_properties,
+    "get_project_details": _get_project_details,
     "get_visit_slots": _get_visit_slots,
     "book_site_visit": _book_site_visit,
     "cancel_site_visit": _cancel_site_visit,

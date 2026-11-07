@@ -1049,7 +1049,9 @@ def test_access_key_login(monkeypatch):
     with TestClient(app) as c:
         assert c.get("/", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
         assert c.get("/inventory", headers={"Authorization": "Bearer k9Fq72LmZp0XwD4s"}).status_code == 200
-        assert c.get("/", headers={"Authorization": "Bearer wrong-key-wrong-key"}).json()["detail"] == "Wrong access key"
+        assert c.get("/", headers={"Authorization": "Bearer wrong-key-wrong-key"}).json()["detail"].startswith(
+            "Wrong access key: different length")
+        assert "capital" in c.get("/", headers={"Authorization": "Bearer K9FQ72LMZP0XWD4S"}).json()["detail"]
         assert c.get("/", auth=("owner", "pw12345")).status_code == 200            # browser login still works
         r = c.get("/")
         assert r.status_code == 401 and r.headers["www-authenticate"] == "Basic"   # browser still gets the prompt

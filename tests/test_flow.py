@@ -590,3 +590,21 @@ def test_login_tolerates_spaces_and_reports_which_part(monkeypatch):
         assert c.get("/", auth=("anything", "Sunrise2026Sales")).status_code == 200
         assert c.get("/", auth=("owner", "nope")).json()["detail"] == "Wrong password"
         assert c.get("/", auth=("Sunrise2026Sales", "owner")).status_code == 200   # boxes swapped
+
+
+def test_drafts_show_on_lead_page_and_send_from_there(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
+    lead = mk_lead()
+    team.send_or_draft(lead["id"], "Hi Asha, Anitha here!")
+    with TestClient(app) as c:
+        page = c.get(f"/leads/{lead['id']}", auth=("owner", "pw")).text
+        assert "DRAFT D1" in page and "Hi Asha, Anitha here!" in page
+        assert page.index("you play the customer") < page.index("Message the customer yourself")
+        r = c.post("/drafts/1", auth=("owner", "pw"),
+                   data={"action": "send", "text": "Hi Asha, Anitha here!", "back": f"/leads/{lead['id']}"})
+        assert r.url.path == f"/leads/{lead['id']}" and "DRAFT D1" not in r.text
+    assert to(fresh, lead["phone"]) == ["Hi Asha, Anitha here!"]

@@ -348,9 +348,11 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
 <div class="card"><h4>AI's notes</h4><div style="white-space:pre-wrap;font-size:14px">{escape(lead['memory'] or '-')}</div></div>
 <div class="card"><h4>Site / office visits</h4><table>{vrows or '<tr><td>none</td></tr>'}</table>{reports}</div>
 <div class="card"><h4>Offers</h4><table>{orows or '<tr><td>none</td></tr>'}</table></div></div>
-<div><div class="card"><h4>Conversation</h4><div class="row">{chat or 'No messages yet.'}</div>
-<form method="post" action="/leads/{lead_id}/send" style="margin-top:10px"><textarea name="text" rows="2" style="width:100%" placeholder="Send a message yourself (as the business)"></textarea><button>Send</button></form></div>
+<div><div class="card"><h4>Conversation</h4><div class="row">{chat or 'No messages yet.'}{_drafts_inline(lead_id)}</div></div>
 {_test_tools(lead_id) if test_mode() else ''}
+<div class="card"><h4>Message the customer yourself</h4>
+<form method="post" action="/leads/{lead_id}/send"><textarea name="text" rows="2" style="width:100%"
+placeholder="Goes to the customer on WhatsApp in {escape(team.rm_for(lead)['name'])}'s name"></textarea><button>Send to customer</button></form></div>
 <div class="card"><h4>Activity log</h4><table>{lrows}</table></div></div></div>{AUTO_REFRESH}"""
     return page(lead["name"] or "Lead", body)
 
@@ -361,8 +363,20 @@ var f=document.querySelectorAll('textarea,input[type=text],input:not([type])');
 for(var i=0;i<f.length;i++){if(f[i].value)return;}location.reload();},12000);</script>"""
 
 
+def _drafts_inline(lead_id: int) -> str:
+    out = ""
+    for d in db.q("SELECT * FROM drafts WHERE lead_id = ? AND status = 'pending' ORDER BY id", (lead_id,)):
+        out += f"""<div class="msg out" style="border:2px dashed #7bbf94;background:#f3fbf6">
+<small>DRAFT D{d['id']} · waiting for {escape(d['rm_name'] or 'salesperson')} to approve</small>
+<form method="post" action="/drafts/{d['id']}"><input type="hidden" name="back" value="/leads/{lead_id}">
+<textarea name="text" rows="3" style="width:100%">{escape(d['text'])}</textarea>
+<button name="action" value="send">Send</button> <button name="action" value="drop" class="grey">Drop</button>
+<small>Edit the text before sending if you like.</small></form></div>"""
+    return out
+
+
 def _test_tools(lead_id: int) -> str:
-    return f"""<div class="card" style="border-color:#f1d38a"><h4>Test: play the other people</h4>
+    return f"""<div class="card" style="border-color:#f1d38a"><h4>Test: you play the customer and the team</h4>
 <form method="post" action="/test/{lead_id}/customer"><textarea name="text" rows="2" style="width:100%"
 placeholder="Reply as the CUSTOMER, e.g. Looking for 2BHK under 75L, can I visit Saturday?"></textarea>
 <button>Send as customer</button></form>
@@ -475,14 +489,15 @@ def reports(_: str = Depends(owner_auth)):
 
 
 @app.post("/drafts/{draft_id}")
-def draft_action(draft_id: int, action: str = Form(...), text: str = Form(""), _: str = Depends(owner_auth)):
+def draft_action(draft_id: int, action: str = Form(...), text: str = Form(""), back: str = Form("/"),
+                 _: str = Depends(owner_auth)):
     if action == "drop":
         team.drop_draft(draft_id)
     else:
         d = db.q1("SELECT text FROM drafts WHERE id = ?", (draft_id,))
         edited = text.strip() if d and text.strip() and text.strip() != d["text"].strip() else None
         team.approve_draft(draft_id, edited, actor="owner")
-    return RedirectResponse("/", status_code=303)
+    return RedirectResponse(back if back.startswith("/") and not back.startswith("//") else "/", status_code=303)
 
 
 @app.post("/bookings/{booking_id}/paid")

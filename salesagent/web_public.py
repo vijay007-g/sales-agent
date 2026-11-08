@@ -40,13 +40,18 @@ border-radius:8px;padding:10px;margin-bottom:10px}
 """
 
 
+_page_city: dict = {"city": None}
+
+
 def _brand_line() -> str:
+    from .config import rera_for
     b = get_settings().business
     out = escape(b.get("name", ""))
-    if b.get("legal_name"):
-        out += f" — a brand of {escape(b['legal_name'])}"
-    if b.get("rera_agent"):
-        out += f" · RERA agent reg. {escape(b['rera_agent'])}"
+    if b.get("legal_name") and b["legal_name"].strip().lower() != (b.get("name") or "").strip().lower():
+        out += f" — {escape(b['legal_name'])}"
+    rera = rera_for(_page_city["city"])
+    if rera:
+        out += f" · RERA agent reg. {escape(rera)}"
     return out
 
 
@@ -117,6 +122,7 @@ def project_landing(slug: str, request: Request):
 
 
 def _render_project(p: dict, params: dict, error: str = "", values: dict | None = None) -> HTMLResponse:
+    _page_city["city"] = p.get("city")
     photos = sales_kit.find_media(p["id"], "photo")
     photo = (f'<img class="photo" src="{escape(sales_kit.media_url(photos[0]))}" alt="{escape(p["name"])}">'
              if photos else "")
@@ -138,6 +144,7 @@ def all_projects(request: Request):
 
 
 def _render_all(params: dict, city: str = "", error: str = "", values: dict | None = None) -> HTMLResponse:
+    _page_city["city"] = city or None
     cards = ""
     for p in inventory.list_projects(city=city or None):
         if not any(t["available"] for t in inventory.type_summary(p["id"])):

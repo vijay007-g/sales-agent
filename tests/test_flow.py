@@ -525,7 +525,7 @@ def test_test_mode_from_browser(fresh, monkeypatch):
 def _form_data(**over):
     d = {
         "business[name]": "Vijay Homes", "business[legal_name]": "Tiruana Private Limited",
-        "business[rera_agent]": "TN/Agent/1", "business[website]": "", "business[languages]": "English, Tamil",
+        "business[rera_by_city]": "Chennai: TN/Agent/1 (Vijay)\nBangalore: KA/Agent/2 (Wife)", "business[website]": "", "business[languages]": "English, Tamil",
         "business[timezone]": "Asia/Kolkata", "business[currency]": "INR",
         "owner[name]": "Vijay", "owner[phone]": "98765 00000", "owner[email]": "",
         "sales_team[0][name]": "Priya", "sales_team[0][phone]": "+91 98765 11111",
@@ -567,7 +567,7 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
     try:
         with TestClient(app) as c:
             page_html = c.get("/settings", auth=("owner", "pw")).text
-            assert "Brand name" in page_html and "Registered company" in page_html and "Add salesperson" in page_html
+            assert "Brand name" in page_html and "Registered firm" in page_html and "Add salesperson" in page_html
             bad = c.post("/settings", auth=("owner", "pw"),
                          data=_form_data(**{"projects[0][units][0][floor_price]": "2cr",
                                             "site_persons[0][projects]": "Grn Park",
@@ -579,7 +579,10 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
             assert r.status_code == 200 and "Saved" in r.text
         s = get_settings()
         assert s.business["name"] == "Vijay Homes" and s.owner["phone"] == "+919876500000"
-        assert s.business["legal_name"] == "Tiruana Private Limited" and s.business["rera_agent"] == "TN/Agent/1"
+        assert s.business["legal_name"] == "Tiruana Private Limited" and "KA/Agent/2" in s.business["rera_by_city"]
+        from salesagent.config import rera_for
+        assert rera_for("Bangalore") == "KA/Agent/2 (Wife)" and rera_for("chennai") == "TN/Agent/1 (Vijay)"
+        assert "TN/Agent/1" in rera_for(None) and "KA/Agent/2" in rera_for(None)
         assert [t["name"] for t in s.sales_team] == ["Priya"]
         assert s.booking["advance_amount"] == 300000 and s.booking["ifsc"] == "SBIN0000001"
         assert s.site_persons[0]["visit_hours"] == ["09:30", "17:30"] and 6 not in s.site_persons[0]["working_days"]
@@ -1471,3 +1474,22 @@ def test_lead_sources_page(monkeypatch):
         assert "LEADS_IMAP_PASSWORD" in html and "Upload Google Ads CSV" in html
         r = c.post("/sources/mail", auth=("owner", "pw"))
         assert "Mailbox not set up yet" in r.text
+
+
+def test_landing_and_registration_show_city_rera(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory, partners
+    from salesagent.server import app
+    monkeypatch.setitem(get_settings().business, "rera_by_city",
+                        "Chennai: TN/Agent/0123 (Vijay)\nBangalore: PRM/KA/RERA/1251 (Wife)")
+    inventory.load_sample()
+    with TestClient(app) as c:
+        blr = c.get("/p/whitefield-skyline-sample").text
+        chn = c.get("/p/porur-greens-sample").text
+    assert "PRM/KA/RERA/1251" in blr and "TN/Agent/0123" not in blr
+    assert "TN/Agent/0123" in chn and "PRM/KA/RERA/1251" not in chn
+    lead = mk_lead(city="Bangalore")
+    partners.register_client(lead["id"], inventory.get_project("Whitefield Skyline (sample)")["id"])
+    msg = db.q1("SELECT message FROM registrations")["message"]
+    assert "Our RERA agent registration: PRM/KA/RERA/1251 (Wife)" in msg

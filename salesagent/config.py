@@ -172,5 +172,19 @@ def reload_settings() -> None:
     get_settings.cache_clear()
 
 
+def rera_for(city: str | None = None) -> str:
+    """RERA agent registration to show for a city (from 'City: number' lines); all of them if no city matches."""
+    b = get_settings().business
+    lines = {}
+    for ln in (b.get("rera_by_city") or "").splitlines():
+        if ":" in ln:
+            c, num = ln.split(":", 1)
+            if c.strip() and num.strip():
+                lines[c.strip().lower()] = f"{c.strip()}: {num.strip()}"
+    if city and city.strip().lower() in lines:
+        return lines[city.strip().lower()].split(":", 1)[1].strip()
+    return " · ".join(lines.values()) or b.get("rera_agent", "")
+
+
 def env(name: str, default: str = "") -> str:
     return os.environ.get(name, default)

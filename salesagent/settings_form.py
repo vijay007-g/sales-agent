@@ -176,9 +176,10 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
 <form method="post" action="/settings">
 <div class="card"><h3>Company</h3><div class="fields">
 {inp("business[name]", "Brand name (what customers see)", b.get("name"), required=True)}
-{inp("business[legal_name]", "Registered company (paperwork & billing)", b.get("legal_name"), placeholder="e.g. Tiruana Private Limited")}
-{inp("business[rera_agent]", "RERA agent registration no(s)", b.get("rera_agent"), placeholder="TN: … · KA: …",
-     hint="Shown on landing pages; required on ads by RERA")}
+{inp("business[legal_name]", "Registered firm / company (paperwork & billing)", b.get("legal_name"), placeholder="e.g. Skyline Realty (partnership firm)")}
+{area("business[rera_by_city]", "RERA agent registration per city", b.get("rera_by_city") or "",
+      "One per line as  City: registration no (registered name)  e.g.  Chennai: TN/Agent/0123/2026 (Vijay)  and  "
+      "Bangalore: PRM/KA/RERA/1251/AG/2026 (wife's name). Shown on that city's landing pages and in builder registrations.")}
 {inp("business[website]", "Website", b.get("website"), "url", placeholder="https://")}
 {inp("business[languages]", "Languages customers use", ", ".join(b.get("languages") or []), placeholder="English, Tamil, Hindi")}
 {sel("business[timezone]", "Time zone", tz, [(t, t) for t in tzs])}
@@ -317,7 +318,8 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
                        "languages": _csv(b, "languages") or ["English"], "timezone": _s(b, "timezone") or "Asia/Kolkata",
                        "currency": _s(b, "currency") or "INR",
                        "assistant_intro": _s(b, "assistant_intro") or f"{_s(b, 'name') or 'Our team'}'s assistant",
-                       "legal_name": _s(b, "legal_name"), "rera_agent": _s(b, "rera_agent")}
+                       "legal_name": _s(b, "legal_name"), "rera_by_city": _s(b, "rera_by_city"),
+                       "rera_agent": old.get("business", {}).get("rera_agent", "")}
     if not raw["business"]["name"]:
         errs.append("Company name is required.")
     o = t.get("owner", {})

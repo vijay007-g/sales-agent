@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from . import channels, db, inventory
-from .config import get_settings
+from .config import get_settings, rera_for
 from .pricing import fmt_money
 
 
@@ -45,6 +45,7 @@ def register_client(lead_id: int, project_ref, reason: str = "site visit", force
            f"Client: {lead['name'] or '-'}  ·  {lead['phone'] or lead['email'] or '-'}\n"
            f"Interest: {lead.get('unit_type') or '-'}, budget {fmt_money(lead.get('budget_max'))}\n"
            f"Reason: {reason}\n"
+           + (f"Our RERA agent registration: {rera}\n" if (rera := rera_for(project.get('city'))) else "") +
            f"Please register this client against {s.business['name']}. Valid until {valid_until:%d %b %Y}.\n"
            f"Reply  ACK R{rid}  to confirm, or  DISPUTE R{rid} <reason>  if this client is already with you.")
     db.update("registrations", rid, {"message": msg})

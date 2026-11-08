@@ -125,7 +125,7 @@ def test_new_lead_assigned_first_message_and_intro_call(fresh):
         assert str(u["floor_price"]) not in system           # floor prices never reach the model
     assert "This lead's salesperson: Anitha" in call["system"][1]["text"]
     assert "Sunrise Meadows" in call["system"][1]["text"]            # inventory summary
-    assert "Saikrupa's assistant" in call["system"][0]["text"]
+    assert "Skyline Realty's assistant" in call["system"][0]["text"]
     assert call["fallbacks"] == "default"
 
 
@@ -494,7 +494,7 @@ def test_settings_page_validates_and_saves(tmp_path, monkeypatch):
                            data={"config": text.replace("floor_price: 6900000", "floor_price: 99000000")})
             assert "floor price is above list price" in worse.text
             ok = c.post("/settings/advanced", auth=("owner", "pw"),
-                        data={"config": text.replace('name: "Saikrupa AI Realty"', 'name: "Vijay Homes"')})
+                        data={"config": text.replace('name: "Skyline Realty"', 'name: "Vijay Homes"')})
             assert ok.status_code == 200 and (tmp_path / "cfg.yaml").exists()
             assert get_settings().business["name"] == "Vijay Homes"
     finally:
@@ -524,7 +524,8 @@ def test_test_mode_from_browser(fresh, monkeypatch):
 
 def _form_data(**over):
     d = {
-        "business[name]": "Vijay Homes", "business[website]": "", "business[languages]": "English, Tamil",
+        "business[name]": "Vijay Homes", "business[legal_name]": "Tiruana Private Limited",
+        "business[rera_agent]": "TN/Agent/1", "business[website]": "", "business[languages]": "English, Tamil",
         "business[timezone]": "Asia/Kolkata", "business[currency]": "INR",
         "owner[name]": "Vijay", "owner[phone]": "98765 00000", "owner[email]": "",
         "sales_team[0][name]": "Priya", "sales_team[0][phone]": "+91 98765 11111",
@@ -566,7 +567,7 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
     try:
         with TestClient(app) as c:
             page_html = c.get("/settings", auth=("owner", "pw")).text
-            assert "Company name" in page_html and "Add salesperson" in page_html and "/inventory" in page_html
+            assert "Brand name" in page_html and "Registered company" in page_html and "Add salesperson" in page_html
             bad = c.post("/settings", auth=("owner", "pw"),
                          data=_form_data(**{"projects[0][units][0][floor_price]": "2cr",
                                             "site_persons[0][projects]": "Grn Park",
@@ -578,6 +579,7 @@ def test_settings_form_round_trip(tmp_path, monkeypatch):
             assert r.status_code == 200 and "Saved" in r.text
         s = get_settings()
         assert s.business["name"] == "Vijay Homes" and s.owner["phone"] == "+919876500000"
+        assert s.business["legal_name"] == "Tiruana Private Limited" and s.business["rera_agent"] == "TN/Agent/1"
         assert [t["name"] for t in s.sales_team] == ["Priya"]
         assert s.booking["advance_amount"] == 300000 and s.booking["ifsc"] == "SBIN0000001"
         assert s.site_persons[0]["visit_hours"] == ["09:30", "17:30"] and 6 not in s.site_persons[0]["working_days"]
@@ -974,7 +976,7 @@ def test_landing_page_captures_lead_with_consent(fresh):
     from salesagent.server import app
     web_public._hits.clear()
     inventory.load_sample()
-    fresh.fake.queue([tool_use("send_message", text="Hi Ravi, I'm Saikrupa's assistant…", channel="whatsapp")])
+    fresh.fake.queue([tool_use("send_message", text="Hi Ravi, I'm Skyline Realty's assistant…", channel="whatsapp")])
     with TestClient(app) as c:
         page = c.get("/p/whitefield-skyline-sample?src=facebook&c=C7-V2")
         assert page.status_code == 200 and "Whitefield Skyline" in page.text and "2BHK" in page.text
@@ -1187,12 +1189,12 @@ def test_sales_portal_draft_approval(fresh, monkeypatch):
     monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
     lead = mk_lead()
     team.assign_rm(lead["id"])
-    team.send_or_draft(lead["id"], "Hi Asha, Saikrupa's assistant here.")
+    team.send_or_draft(lead["id"], "Hi Asha, Skyline Realty's assistant here.")
     tok = team_access.ensure("sales", "Anitha", rm_phone())["token"]
     with TestClient(app) as c:
         assert "Messages to approve" in c.get(f"/s/{tok}").text
-        c.post(f"/s/{tok}/draft/1", data={"action": "send", "text": "Hi Asha, Saikrupa's assistant here."})
-    assert to(fresh, lead["phone"]) == ["Hi Asha, Saikrupa's assistant here."]
+        c.post(f"/s/{tok}/draft/1", data={"action": "send", "text": "Hi Asha, Skyline Realty's assistant here."})
+    assert to(fresh, lead["phone"]) == ["Hi Asha, Skyline Realty's assistant here."]
 
 
 def test_site_app_visit_steps_notify_salesperson(fresh):
@@ -1287,3 +1289,185 @@ def test_no_reply_sequence_alternates_message_and_call_then_nurture(fresh):
     # a reply resets the sequence
     events.inbound_message(lead["phone"], None, "1", "whatsapp")
     assert db.get_lead(lead["id"])["followup_attempts"] == 0
+
+
+# ------------------------------------------------------------------ automatic lead sources
+
+class _Resp:
+    def __init__(self, data, code=200):
+        self._d, self.status_code, self.text = data, code, json.dumps(data)
+
+    def json(self):
+        return self._d
+
+
+def test_meta_lead_ads_webhook(fresh, monkeypatch):
+    import hashlib
+    import hmac as _hmac
+
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory, lead_sources
+    from salesagent.server import app
+    inventory.load_sample()
+    monkeypatch.setenv("META_PAGE_TOKEN", "page-token")
+    monkeypatch.setenv("META_APP_SECRET", "appsecret")
+    monkeypatch.setenv("META_VERIFY_TOKEN", "verify-me")
+    calls = []
+
+    def fake_get(url, params=None, timeout=None):
+        calls.append(url)
+        return _Resp({"field_data": [{"name": "full_name", "values": ["Karthik R"]},
+                                     {"name": "phone_number", "values": ["+91 98450 77777"]},
+                                     {"name": "what_is_your_budget?", "values": ["90_lakhs"]},
+                                     {"name": "which_configuration?", "values": ["2_bhk"]}],
+                      "ad_name": "Whitefield Skyline lake view C3-V2", "campaign_name": "BLR ready homes",
+                      "form_id": "F1"})
+    monkeypatch.setattr(lead_sources.requests, "get", fake_get)
+    fresh.fake.queue([tool_use("send_message", text="Hi Karthik, Skyline Realty's assistant here", channel="whatsapp")])
+    payload = {"entry": [{"changes": [{"field": "leadgen", "value": {"leadgen_id": "L123", "form_id": "F1"}}]}]}
+    body = json.dumps(payload).encode()
+    sig = "sha256=" + _hmac.new(b"appsecret", body, hashlib.sha256).hexdigest()
+    with TestClient(app) as c:
+        assert c.get("/webhook/meta", params={"hub.mode": "subscribe", "hub.verify_token": "verify-me",
+                                              "hub.challenge": "42"}).text == "42"
+        assert c.post("/webhook/meta", content=body, headers={"X-Hub-Signature-256": "sha256=bad"}).status_code == 401
+        assert c.post("/webhook/meta", content=body, headers={"X-Hub-Signature-256": sig}).status_code == 200
+        c.post("/webhook/meta", content=body, headers={"X-Hub-Signature-256": sig})          # Meta retry: ignored
+    lead = db.find_lead_by_phone("9845077777")
+    assert lead["name"] == "Karthik R" and lead["source"] == "meta_ads" and lead["campaign"] == "C3-V2"
+    assert lead["unit_type"] == "2BHK" and lead["budget_max"] == 9000000
+    assert lead["project_interest"] == "Whitefield Skyline (sample)" and "Meta" in lead["consent_text"]
+    assert len(calls) == 1 and db.q1("SELECT COUNT(*) n FROM leads")["n"] == 1
+    assert "Came from Meta lead ad" in fresh.fake.briefings[-1]
+
+
+def test_click_to_whatsapp_ad_tags_lead(fresh):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory
+    from salesagent.server import app
+    inventory.load_sample()
+    fresh.fake.queue([tool_use("send_message", text="Hi! Porur Greens 2BHKs start at ₹78 L.", channel="whatsapp")])
+    payload = {"entry": [{"changes": [{"value": {
+        "contacts": [{"wa_id": "919845066666", "profile": {"name": "Lakshmi"}}],
+        "messages": [{"from": "919845066666", "type": "text", "text": {"body": "Hi, is this available?"},
+                      "referral": {"source_type": "ad", "source_id": "AD9", "headline": "Porur Greens 2BHK from 78L C4-V1",
+                                   "body": "Near DLF IT park", "source_url": "https://fb.me/x"}}]}}]}]}
+    with TestClient(app) as c:
+        assert c.post("/webhook/whatsapp", json=payload).status_code == 200
+    lead = db.find_lead_by_phone("+919845066666")
+    assert lead["source"] == "meta_ctwa" and lead["campaign"] == "C4-V1" and lead["name"] == "Lakshmi"
+    assert lead["project_interest"] == "Porur Greens (sample)"
+    assert "Click-to-WhatsApp ad" in fresh.fake.briefings[-1] and "is this available" in fresh.fake.briefings[-1]
+
+
+SAMPLE_99 = """From: 99acres <noreply@99acres.com>
+Subject: You have received a response for Porur Greens
+
+Dear Advertiser,
+A buyer is interested in your property Porur Greens, Porur, Chennai.
+
+Name: Suresh Kumar
+Mobile: +91-9840123456
+Email: suresh.k@example.com
+Budget: 80 Lac
+Configuration: 2 BHK
+
+Regards, 99acres team"""
+
+
+def test_portal_email_becomes_lead(fresh):
+    from salesagent import inventory, lead_sources
+    inventory.load_sample()
+    body = SAMPLE_99.split("\n\n", 1)[1]
+    fresh.fake.queue([tool_use("send_message", text="Hi Suresh, Skyline Realty's assistant here", channel="whatsapp")])
+    lid = lead_sources.process_email("99acres <noreply@99acres.com>", "You have received a response for Porur Greens",
+                                     body, "<m1@99acres>")
+    lead = db.get_lead(lid)
+    assert lead["name"] == "Suresh Kumar" and lead["phone"] == "+919840123456" and lead["email"] == "suresh.k@example.com"
+    assert lead["source"] == "portal" and lead["campaign"] == "99acres" and lead["unit_type"] == "2BHK"
+    assert lead["budget_max"] == 8000000 and lead["project_interest"] == "Porur Greens (sample)"
+    assert lead_sources.process_email("99acres", "x", body, "<m1@99acres>") is None              # duplicate
+    assert lead_sources.process_email("friend@gmail.com", "Lunch?", "Call me 9876501234", "<m2>") is None  # not a portal
+    html = "<html><body><p>MagicBricks lead</p><table><tr><td>Name: Anu</td></tr><tr><td>Phone: 9988776655</td></tr>" \
+           "</table></body></html>"
+    lid2 = lead_sources.process_email("alerts@magicbricks.com", "New enquiry", html, "<m3>")
+    assert db.get_lead(lid2)["campaign"] == "magicbricks" and db.get_lead(lid2)["phone"] == "+919988776655"
+
+
+def test_portal_email_webhook_and_mailbox_poll(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import lead_sources
+    from salesagent.server import app
+    monkeypatch.setenv("LEAD_WEBHOOK_SECRET", "s3")
+    body = SAMPLE_99.split("\n\n", 1)[1]
+    with TestClient(app) as c:
+        assert c.post("/webhook/portal-email", json={"from": "99acres", "subject": "x", "text": body}).status_code == 401
+        r = c.post("/webhook/portal-email", headers={"X-Webhook-Secret": "s3"},
+                   json={"from": "noreply@99acres.com", "subject": "Response", "text": body, "message_id": "w1"})
+        assert r.json()["lead_id"]
+
+    raw = ("From: Housing.com <leads@housing.com>\r\nSubject: New lead\r\nMessage-ID: <h1@housing>\r\n"
+           "Content-Type: text/plain; charset=utf-8\r\n\r\nName: Priya M\r\nPhone: 9123456780\r\nBudget: 1.2 Cr\r\n").encode()
+
+    class FakeIMAP:
+        stored = []
+
+        def __init__(self, host, timeout=None): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def login(self, u, p): assert (u, p) == ("leads@x.com", "app-pass")
+        def select(self, box): pass
+        def search(self, *a): return "OK", [b"1"]
+        def fetch(self, num, what): return "OK", [(b"1 (RFC822)", raw)]
+        def store(self, num, flags, val): FakeIMAP.stored.append(num)
+    monkeypatch.setattr(lead_sources.imaplib, "IMAP4_SSL", FakeIMAP)
+    assert lead_sources.poll_mailbox() == {"configured": False}
+    monkeypatch.setenv("LEADS_IMAP_USER", "leads@x.com")
+    monkeypatch.setenv("LEADS_IMAP_PASSWORD", "app-pass")
+    assert lead_sources.poll_mailbox()["leads"] == 1 and FakeIMAP.stored == [b"1"]
+    lead = db.find_lead_by_phone("9123456780")
+    assert lead["campaign"] == "housing" and lead["budget_max"] == 12000000
+
+
+def test_meta_spend_sync_and_google_csv(fresh, monkeypatch, tmp_path):
+    from salesagent import lead_sources, marketing
+    month = get_settings().now().strftime("%Y-%m")
+    page2 = {"data": [{"campaign_name": "Chennai search", "spend": "4000.4", "date_start": f"{month}-01"}]}
+
+    def fake_graph(path, params, token):
+        assert path.startswith("act_123/insights") and params["level"] == "campaign"
+        return {"data": [{"campaign_name": "BLR ready homes C3-V2", "spend": "15000", "date_start": f"{month}-01"}],
+                "paging": {"next": "https://graph/next"}}
+    monkeypatch.setattr(lead_sources, "_graph_get", fake_graph)
+    monkeypatch.setattr(lead_sources.requests, "get", lambda url, timeout=None: _Resp(page2))
+    assert lead_sources.sync_meta_spend() == {"configured": False}
+    monkeypatch.setenv("META_ADS_TOKEN", "t")
+    monkeypatch.setenv("META_AD_ACCOUNT_ID", "act_123")
+    res = lead_sources.sync_meta_spend()
+    assert res["total"] == 19000 and res["rows"] == 2
+    lead_sources.sync_meta_spend()                                         # re-sync replaces, doesn't double
+    assert db.q1("SELECT SUM(amount) s FROM ad_spend WHERE notes = 'auto:meta'")["s"] == 19000
+    assert db.q1("SELECT campaign FROM ad_spend WHERE amount = 15000")["campaign"] == "C3-V2"
+    csv_path = tmp_path / "g.csv"
+    csv_path.write_text("Campaign report\nAll time\nCampaign,Clicks,Cost\nChennai 2BHK C5-V1,120,\"12,345.60\"\n"
+                        "Bangalore search,80,6000\nTotal: Account,200,\"18,345.60\"\n")
+    res = lead_sources.import_google_csv(str(csv_path), month)
+    assert res["rows"] == 2
+    row = next(r for r in marketing.spend_report("source") if r["key"] == "google_ads")
+    assert row["spend"] == 18346
+
+
+def test_lead_sources_page(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        html = c.get("/sources", auth=("owner", "pw")).text
+        assert "Meta lead ads" in html and "/webhook/meta" in html and "Click-to-WhatsApp" in html
+        assert "LEADS_IMAP_PASSWORD" in html and "Upload Google Ads CSV" in html
+        r = c.post("/sources/mail", auth=("owner", "pw"))
+        assert "Mailbox not set up yet" in r.text

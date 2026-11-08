@@ -10,6 +10,7 @@ from . import channels, db, events, pricing, team, team_access
 from .config import get_settings
 
 log = logging.getLogger("salesagent.scheduler")
+_last_mail_poll = 0.0
 
 
 def in_quiet_hours(now: datetime | None = None) -> bool:
@@ -87,6 +88,27 @@ def tick() -> dict:
                 pricing.notify_owner_offer(o["id"])
                 db.audit(None, "system", "approval_nudge", str(o["id"]))
                 stats["nudges"] += 1
+
+    # 4b. automatic lead sources: portal mailbox every ~2 minutes; Meta ad spend once a day
+    global _last_mail_poll
+    import time as _time
+    if _time.time() - _last_mail_poll > 110:
+        _last_mail_poll = _time.time()
+        from . import lead_sources
+        try:
+            lead_sources.poll_mailbox()
+        except Exception as e:  # noqa: BLE001 - never stop the clock for a mailbox problem
+            log.warning("mailbox poll failed: %s", e)
+            if not _sent_today("mailbox_error"):
+                db.audit(None, "system", "mailbox_error", str(e)[:300])
+                channels.notify_staff(s.owner["phone"], f"⚠️ Couldn't read the leads mailbox: {str(e)[:200]}")
+    if now.hour >= 7 and not _sent_today("meta_spend_check"):
+        db.audit(None, "system", "meta_spend_check", "")
+        from . import lead_sources
+        try:
+            lead_sources.sync_meta_spend()
+        except Exception as e:  # noqa: BLE001
+            log.warning("meta spend sync failed: %s", e)
 
     # 5. channel partner housekeeping (once a day): renew expiring client registrations, chase overdue commissions
     if not _sent_today("partners_check"):

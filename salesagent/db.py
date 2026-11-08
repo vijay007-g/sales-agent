@@ -165,6 +165,12 @@ CREATE TABLE IF NOT EXISTS team_access (
     revoked INTEGER DEFAULT 0, created_at TEXT, last_seen TEXT
 );
 
+CREATE TABLE IF NOT EXISTS processed_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT, ext_id TEXT, created_at TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_processed ON processed_events(source, ext_id);
+
 CREATE TABLE IF NOT EXISTS insights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     kind TEXT, content TEXT, based_on INTEGER, created_at TEXT

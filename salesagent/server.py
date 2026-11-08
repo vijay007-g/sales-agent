@@ -113,6 +113,37 @@ async def email_webhook(request: Request, x_webhook_secret: str | None = Header(
     return {"ok": True}
 
 
+@app.get("/webhook/meta")
+async def meta_verify(request: Request):
+    p = request.query_params
+    want = env("META_VERIFY_TOKEN") or env("WHATSAPP_VERIFY_TOKEN")
+    if p.get("hub.mode") == "subscribe" and want and p.get("hub.verify_token") == want:
+        return PlainTextResponse(p.get("hub.challenge", ""))
+    raise HTTPException(403)
+
+
+@app.post("/webhook/meta")
+async def meta_leads(request: Request, x_hub_signature_256: str | None = Header(None)):
+    """Meta lead ads (Page 'leadgen' webhook)."""
+    from . import lead_sources
+    body = await request.body()
+    if not lead_sources.meta_signature_ok(body, x_hub_signature_256):
+        raise HTTPException(401, "bad signature")
+    events.dispatch(lead_sources.handle_meta_webhook, json.loads(body or b"{}"))
+    return {"ok": True}
+
+
+@app.post("/webhook/portal-email")
+async def portal_email(request: Request, x_webhook_secret: str | None = Header(None)):
+    """Forwarded portal enquiry emails (from an email-forwarding service): {from, subject, text, message_id}."""
+    from . import lead_sources
+    _check_secret(x_webhook_secret)
+    d = await request.json()
+    lead_id = lead_sources.process_email(d.get("from", ""), d.get("subject", ""), d.get("text") or d.get("html") or "",
+                                         d.get("message_id", ""))
+    return {"ok": True, "lead_id": lead_id}
+
+
 @app.get("/webhook/whatsapp")
 async def wa_verify(request: Request):
     p = request.query_params
@@ -149,6 +180,10 @@ async def wa_inbound(request: Request, x_hub_signature_256: str | None = Header(
                 if reply is not None:
                     channels.notify_staff(phone, reply)
                     continue
+                from . import lead_sources
+                ref = lead_sources.ctwa_referral(m)
+                if ref:
+                    lead_sources.tag_ctwa_lead(phone, names.get(m.get("from")) or "", ref)
                 lead = db.find_lead_by_phone(phone)
                 if not lead and names.get(m.get("from")):
                     leads.upsert_lead({"phone": phone, "name": names[m["from"]], "source": "inbound_whatsapp"})
@@ -200,7 +235,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
 <a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/team">Team</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
-<a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
+<a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
 <a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
 <main>{_storage_banner()}{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
 
@@ -752,6 +787,95 @@ async def call_form_submit(token: str, request: Request):
                                                        "callback_time")}
     events.dispatch(events.call_logged, t["id"], outcome, data)
     return _form_page("Thanks", "<h3>Saved.</h3><p>The follow-up WhatsApp will go out in your name.</p>")
+
+
+# ============================ lead sources ============================
+
+@app.get("/sources", response_class=HTMLResponse)
+def sources_page(msg: str = "", _: str = Depends(owner_auth)):
+    from . import lead_sources
+    st = lead_sources.status()
+    url = team.base_url()
+
+    def badge(ok):
+        return ('<span class="pill" style="background:#dcf3e4">connected</span>' if ok else
+                '<span class="pill hot">not set up</span>')
+    month = get_settings().now().strftime("%Y-%m")
+    return page("Lead sources", f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
+<div class="card"><h3>1. Meta lead ads (Facebook & Instagram forms) {badge(st['meta_leads']['configured'])}</h3>
+<p>New leads this week: <b>{st['meta_leads']['week']}</b>. Leads arrive in seconds, with the ad and campaign name.</p>
+<ol><li>In your Meta app (developers.facebook.com) → <b>Webhooks</b> → <b>Page</b> → subscribe to <b>leadgen</b>.<br>
+Callback URL: <code>{escape(url)}/webhook/meta</code> · Verify token: the value of <code>META_VERIFY_TOKEN</code>.</li>
+<li>In Railway → Variables add <code>META_VERIFY_TOKEN</code> (any text), <code>META_APP_SECRET</code> (App settings → Basic)
+and <code>META_PAGE_TOKEN</code> (a long-lived Page token with <i>leads_retrieval</i> and <i>pages_manage_metadata</i>).</li>
+<li>Put the campaign code (e.g. <code>C3-V2</code>) in each ad's name so bookings are traced to the ad.</li></ol>
+<p><small>Signature check: {'on' if st['meta_leads']['signed'] else 'off (add META_APP_SECRET)'}.</small></p></div>
+
+<div class="card"><h3>2. Click-to-WhatsApp ads {badge(st['ctwa']['configured'])}</h3>
+<p>New leads this week: <b>{st['ctwa']['week']}</b>. In Ads Manager choose the <b>Messaging → WhatsApp</b> destination with your
+WhatsApp Business number. When a buyer taps the ad and sends a message, the AI sees the ad they came from and replies at
+once. Works automatically once WhatsApp is connected (<code>WHATSAPP_TOKEN</code>). Put the campaign code in the ad's
+headline or text (e.g. "… C4-V1") to track it.</p></div>
+
+<div class="card"><h3>3. Property portal emails (99acres, MagicBricks, Housing, NoBroker…) {badge(st['portal_email']['configured'])}</h3>
+<p>New leads this week: <b>{st['portal_email']['week']}</b>. Last mailbox check: {escape(st['portal_email']['last_poll'][:16].replace('T', ' ') or 'never')}.</p>
+<ol><li>Create a mailbox just for leads (e.g. a new Gmail), turn on 2-step verification and create an <b>App password</b>.</li>
+<li>In each portal's settings, send lead/enquiry emails to that address (or forward them there).</li>
+<li>In Railway → Variables add <code>LEADS_IMAP_USER</code> (the address) and <code>LEADS_IMAP_PASSWORD</code> (the app password).
+Optional <code>LEADS_IMAP_HOST</code> (default imap.gmail.com).</li></ol>
+<p>The system checks the mailbox every 2 minutes and creates a lead from each portal enquiry. Other emails are ignored.</p>
+<form method="post" action="/sources/mail"><button class="grey">Check mailbox now</button></form>
+<p><small>Using an email-forwarding service instead? POST <code>{{from, subject, text}}</code> to
+<code>{escape(url)}/webhook/portal-email</code> with header <code>X-Webhook-Secret</code>.</small></p></div>
+
+<div class="card"><h3>4. Ad spend {badge(st['meta_spend']['configured'])}</h3>
+<p><b>Meta:</b> spend per campaign is pulled every morning into Reports. Last sync:
+{escape(st['meta_spend']['last_sync'][:16].replace('T', ' ') or 'never')}. Needs <code>META_AD_ACCOUNT_ID</code> and
+<code>META_ADS_TOKEN</code> (a system-user token with <i>ads_read</i>) in Railway. Once on, don't type Meta spend by hand.</p>
+<form method="post" action="/sources/meta-spend"><button class="grey">Sync Meta spend now</button></form>
+<p style="margin-top:14px"><b>Google Ads:</b> in Google Ads → Campaigns → Download → CSV (with the Campaign and Cost columns),
+then upload it here. (Google's API needs a separate developer approval; this keeps it simple.)</p>
+<form method="post" action="/sources/google-csv" enctype="multipart/form-data">
+<input type="file" name="file" accept=".csv" required> <input type="month" name="month" value="{month}">
+<button class="grey">Upload Google Ads CSV</button></form></div>""")
+
+
+@app.post("/sources/mail")
+def sources_mail(_: str = Depends(owner_auth)):
+    from . import lead_sources
+    try:
+        res = lead_sources.poll_mailbox()
+        msg = ("Mailbox not set up yet." if not res.get("configured") else
+               f"Mailbox checked: {res['leads']} new lead(s).")
+    except Exception as e:  # noqa: BLE001 - show the reason to the owner
+        msg = f"Could not read the mailbox: {e}"
+    return RedirectResponse(f"/sources?msg={msg}", status_code=303)
+
+
+@app.post("/sources/meta-spend")
+def sources_meta_spend(_: str = Depends(owner_auth)):
+    from . import lead_sources
+    try:
+        res = lead_sources.sync_meta_spend()
+        msg = ("Meta spend not set up yet." if not res.get("configured") else
+               f"Synced {res['rows']} campaign rows ({', '.join(res['months']) or 'no spend'}).")
+    except Exception as e:  # noqa: BLE001
+        msg = f"Could not sync Meta spend: {e}"
+    return RedirectResponse(f"/sources?msg={msg}", status_code=303)
+
+
+@app.post("/sources/google-csv")
+async def sources_google_csv(file: UploadFile = File(...), month: str = Form(""), _: str = Depends(owner_auth)):
+    from . import lead_sources
+    with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=False) as f:
+        f.write(await file.read())
+        path = f.name
+    try:
+        res = lead_sources.import_google_csv(path, month or get_settings().now().strftime("%Y-%m"))
+        msg = f"Imported {res['rows']} Google Ads campaign rows for {', '.join(res['months']) or '-'}."
+    except Exception as e:  # noqa: BLE001
+        msg = f"Could not read that file: {e}"
+    return RedirectResponse(f"/sources?msg={msg}", status_code=303)
 
 
 # ============================ team portals (links for salespeople and site team) ============================

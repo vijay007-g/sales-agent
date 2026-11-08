@@ -1,4 +1,4 @@
-# Saikrupa AI Realty — AI + human sales system (own projects + channel partner)
+# Skyline Realty — AI + human sales system (own projects + channel partner)
 
 An AI sales assistant works alongside your human sales team:
 
@@ -72,7 +72,7 @@ personally handling their enquiry. It then sets up a call.
 - **Payments go to the right account:** for partner projects the AI sends the **builder's** official bank details
   (fixed text from the builder's record); for your own projects, your company account from Settings.
 - **City routing:** set "Cities they handle" for each salesperson in Settings; leads from that city go to them.
-- **AI disclosure:** the AI introduces itself as "Saikrupa's assistant, working with <salesperson>" in the first
+- **AI disclosure:** the AI introduces itself as "Skyline Realty's assistant, working with <salesperson>" in the first
   message, never pretends to be a person, and arranges a human immediately on request. Change the wording in
   Settings → "How the AI introduces itself".
 
@@ -111,6 +111,18 @@ personally handling their enquiry. It then sets up a call.
 - **When a buyer goes quiet:** 1) a useful WhatsApp with one easy question → 2) reconnect call → 3) a WhatsApp with
   something new → 4) another call at a different time of day → 5) a polite "reply 1 to continue, 2 to pause" → nurture
   (a useful update every 2 weeks; warm buyers also get a periodic check-in call). Any reply restarts the conversation.
+
+## Automatic lead sources (dashboard → Lead sources)
+- **Meta lead ads:** subscribe your Page's `leadgen` webhook to `/webhook/meta`; set `META_VERIFY_TOKEN`,
+  `META_APP_SECRET`, `META_PAGE_TOKEN` in Railway. Leads arrive in seconds with the ad/campaign name (put `C3-V2` in ad
+  names), duplicates from Meta retries are ignored.
+- **Click-to-WhatsApp ads:** nothing extra once WhatsApp is connected — the lead is tagged with the ad and the AI sees
+  what the buyer clicked.
+- **Portal emails:** a dedicated mailbox (`LEADS_IMAP_USER`, `LEADS_IMAP_PASSWORD`, optional `LEADS_IMAP_HOST`) is
+  checked every 2 minutes; 99acres / MagicBricks / Housing / NoBroker / SquareYards… enquiries become leads. Or POST
+  forwarded emails to `/webhook/portal-email`.
+- **Ad spend:** Meta spend per campaign is pulled every morning (`META_AD_ACCOUNT_ID`, `META_ADS_TOKEN` with ads_read);
+  Google Ads spend via CSV upload on the Lead sources page.
 
 ## WhatsApp commands
 ```
@@ -207,5 +219,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 59 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 65 end-to-end tests with a scripted fake model, no API key needed
 ```

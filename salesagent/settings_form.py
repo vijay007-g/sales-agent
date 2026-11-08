@@ -175,14 +175,17 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
     return f"""<style>{CSS}</style>{JS}{top}
 <form method="post" action="/settings">
 <div class="card"><h3>Company</h3><div class="fields">
-{inp("business[name]", "Company name", b.get("name"), required=True)}
+{inp("business[name]", "Brand name (what customers see)", b.get("name"), required=True)}
+{inp("business[legal_name]", "Registered company (paperwork & billing)", b.get("legal_name"), placeholder="e.g. Tiruana Private Limited")}
+{inp("business[rera_agent]", "RERA agent registration no(s)", b.get("rera_agent"), placeholder="TN: … · KA: …",
+     hint="Shown on landing pages; required on ads by RERA")}
 {inp("business[website]", "Website", b.get("website"), "url", placeholder="https://")}
 {inp("business[languages]", "Languages customers use", ", ".join(b.get("languages") or []), placeholder="English, Tamil, Hindi")}
 {sel("business[timezone]", "Time zone", tz, [(t, t) for t in tzs])}
 {inp("business[currency]", "Currency", b.get("currency", "INR"))}
 {inp("business[assistant_intro]", "How the AI introduces itself",
-     b.get("assistant_intro") or f"{(b.get('name') or 'Our').split()[0]}'s assistant",
-     hint="Used in the first message, e.g. \"Hi Ravi, I'm Saikrupa's assistant, working with Anitha\"")}
+     b.get("assistant_intro") or f"{b.get('name') or 'Our team'}'s assistant",
+     hint="Used in the first message, e.g. \"Hi Ravi, I'm Skyline Realty's assistant, working with Anitha\"")}
 </div></div>
 
 <div class="card"><h3>You (management) <small>approvals, booking confirmations, daily summary</small></h3><div class="fields">
@@ -313,7 +316,8 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
     raw["business"] = {**old.get("business", {}), "name": _s(b, "name"), "website": _s(b, "website"),
                        "languages": _csv(b, "languages") or ["English"], "timezone": _s(b, "timezone") or "Asia/Kolkata",
                        "currency": _s(b, "currency") or "INR",
-                       "assistant_intro": _s(b, "assistant_intro") or f"{(_s(b, 'name') or 'Our').split()[0]}'s assistant"}
+                       "assistant_intro": _s(b, "assistant_intro") or f"{_s(b, 'name') or 'Our team'}'s assistant",
+                       "legal_name": _s(b, "legal_name"), "rera_agent": _s(b, "rera_agent")}
     if not raw["business"]["name"]:
         errs.append("Company name is required.")
     o = t.get("owner", {})

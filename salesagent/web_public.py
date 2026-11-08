@@ -40,8 +40,19 @@ border-radius:8px;padding:10px;margin-bottom:10px}
 """
 
 
+def _brand_line() -> str:
+    b = get_settings().business
+    out = escape(b.get("name", ""))
+    if b.get("legal_name"):
+        out += f" — a brand of {escape(b['legal_name'])}"
+    if b.get("rera_agent"):
+        out += f" · RERA agent reg. {escape(b['rera_agent'])}"
+    return out
+
+
 def consent_text() -> str:
-    name = get_settings().business.get("name", "us")
+    b = get_settings().business
+    name = b.get("name", "us") + (f" ({b['legal_name']})" if b.get("legal_name") else "")
     return (f"I agree that {name} and its partner builders may contact me by phone, WhatsApp, SMS or email about "
             f"properties, including through an AI assistant. I can opt out anytime by replying STOP.")
 
@@ -50,7 +61,7 @@ def _shell(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>{escape(title)}</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="index,follow">
 <style>{CSS}</style></head><body>{body}
-<div class="wrap small" style="text-align:center">© {escape(get_settings().business.get('name', ''))} ·
+<div class="wrap small" style="text-align:center">© {_brand_line()} ·
 Prices and availability subject to change · <a href="/privacy">Privacy</a></div></body></html>""")
 
 
@@ -212,7 +223,7 @@ async def all_submit(request: Request):
 def privacy():
     s = get_settings()
     return _shell("Privacy", f"""<div class="wrap"><div class="card"><h2>How we use your details</h2>
-<p>When you send an enquiry, {escape(s.business.get('name', ''))} uses your name, mobile number and requirements only to help
+<p>When you send an enquiry, {escape(s.business.get('name', ''))}{(' (' + escape(s.business['legal_name']) + ')') if s.business.get('legal_name') else ''} uses your name, mobile number and requirements only to help
 you find a home: to reply on WhatsApp (partly through an AI assistant), to call you, to arrange site visits, and — if
 you visit a partner builder's project — to share your name and number with that builder so they can host you.</p>
 <p>We record when and where you gave consent. You can stop all contact at any time by replying STOP, and ask us to

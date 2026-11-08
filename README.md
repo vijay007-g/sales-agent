@@ -124,6 +124,12 @@ personally handling their enquiry. It then sets up a call.
 - **Ad spend:** Meta spend per campaign is pulled every morning (`META_AD_ACCOUNT_ID`, `META_ADS_TOKEN` with ads_read);
   Google Ads spend via CSV upload on the Lead sources page.
 
+## AI quality & cost (Settings → AI quality & cost)
+Presets: **Best** (top model everywhere — default), **Balanced** (Sonnet 5.5 for first contact and nurture),
+**Economy** (Haiku 5.5 for first contact and nurture, Sonnet for qualifying), or **Custom** per stage group.
+Whatever is chosen, key moments always use the top model: price / discount / booking / payment talk, complaints,
+post-visit strategy, management decisions and hot buyers. Reports → AI usage shows calls and cost per model.
+
 ## WhatsApp commands
 ```
 Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
@@ -219,5 +225,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 65 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 69 end-to-end tests with a scripted fake model, no API key needed
 ```

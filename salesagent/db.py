@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS audit (
 
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    lead_id INTEGER, event TEXT, input_tokens INTEGER, output_tokens INTEGER,
+    lead_id INTEGER, event TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER,
     cache_read INTEGER, cache_write INTEGER, created_at TEXT
 );
 """

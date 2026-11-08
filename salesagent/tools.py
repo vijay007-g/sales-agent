@@ -19,6 +19,7 @@ class ToolContext:
     followup_set: bool = False
     call_task_set: bool = False
     api_ok: bool = False
+    model: str = ""
     actions: list[str] = field(default_factory=list)
 
 

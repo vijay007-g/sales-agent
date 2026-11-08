@@ -1493,3 +1493,67 @@ def test_landing_and_registration_show_city_rera(fresh, monkeypatch):
     partners.register_client(lead["id"], inventory.get_project("Whitefield Skyline (sample)")["id"])
     msg = db.q1("SELECT message FROM registrations")["message"]
     assert "Our RERA agent registration: PRM/KA/RERA/1251 (Wife)" in msg
+
+
+# ------------------------------------------------------------------ model switch
+
+def test_model_choice_by_stage_and_key_moments(monkeypatch):
+    from salesagent import models
+    lead = {"stage": "contacted", "temperature": "unknown"}
+    assert models.choose(lead, "customer_message", "hi")[0] == "claude-opus-5-5"          # default: best everywhere
+    monkeypatch.setitem(get_settings().agent, "model_preset", "balanced")
+    assert models.choose(lead, "customer_message", "Is it near the metro?")[0] == "claude-sonnet-5-5"
+    assert models.choose(lead, "customer_message", "What's your best price? Any discount?")[0] == "claude-opus-5-5"
+    assert models.choose({**lead, "temperature": "hot"}, "followup_due", "")[0] == "claude-opus-5-5"
+    assert models.choose({"stage": "qualified"}, "customer_message", "ok")[0] == "claude-opus-5-5"
+    assert models.choose({"stage": "contacted"}, "visit_outcome", "")[0] == "claude-opus-5-5"
+    monkeypatch.setitem(get_settings().agent, "model_preset", "economy")
+    assert models.choose({"stage": "nurture"}, "followup_due", "Nurture touch")[0] == "claude-haiku-5-5"
+    assert models.choose({"stage": "qualified"}, "followup_due", "x")[0] == "claude-sonnet-5-5"
+    assert models.choose({"stage": "negotiation"}, "followup_due", "x")[0] == "claude-opus-5-5"
+    monkeypatch.setitem(get_settings().agent, "model_preset", "custom")
+    monkeypatch.setitem(get_settings().agent, "stage_models", {"early": "claude-haiku-5-5", "closing": "bogus"})
+    assert models.choose({"stage": "new"}, "new_lead", "")[0] == "claude-haiku-5-5"
+    assert models.choose({"stage": "negotiation"}, "followup_due", "")[0] == "claude-opus-5-5"     # invalid ignored
+
+
+def test_agent_uses_chosen_model_and_fallback_only_where_supported(fresh, monkeypatch):
+    monkeypatch.setitem(get_settings().agent, "model_preset", "economy")
+    lead = mk_lead()
+    fresh.fake.queue([tool_use("send_message", text="Hi Asha!", channel="whatsapp")])
+    events.new_lead(lead["id"])
+    first = fresh.fake.calls[0]
+    assert first["model"] == "claude-haiku-5-5" and "fallbacks" not in first and "betas" not in first
+    fresh.fake.queue([tool_use("send_message", text="Let me check with management.", channel="whatsapp")])
+    events.inbound_message(lead["phone"], None, "Can you give a discount?", "whatsapp")
+    call = fresh.fake.calls[-1]
+    assert call["model"] == "claude-opus-5-5" and call["fallbacks"] == "default"
+    assert {r["model"] for r in db.q("SELECT model FROM usage")} == {"claude-haiku-5-5", "claude-opus-5-5"}
+
+
+def test_ai_quality_settings_and_reports(fresh, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from salesagent import config
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setenv("SALESAGENT_CONFIG", str(tmp_path / "cfg.yaml"))
+    config.reload_settings()
+    try:
+        with TestClient(app) as c:
+            html = c.get("/settings", auth=("owner", "pw")).text
+            assert "AI quality &amp; cost" in html and "ALWAYS" in html and "Haiku 5.5" in html
+            c.post("/settings", auth=("owner", "pw"), data=_form_data(**{
+                "agent[model_preset]": "custom", "agent[stage_models][early]": "claude-sonnet-5-5",
+                "agent[stage_models][qualifying]": "claude-opus-5-5", "agent[stage_models][closing]": "claude-opus-5-5",
+                "agent[stage_models][nurture]": "claude-haiku-5-5"}))
+            a = get_settings().agent
+            assert a["model_preset"] == "custom" and a["stage_models"]["nurture"] == "claude-haiku-5-5"
+            assert a.get("effort_negotiation")                                     # other agent settings kept
+            db.insert("usage", {"lead_id": 1, "event": "x", "model": "claude-haiku-5-5", "input_tokens": 1000,
+                                "output_tokens": 500, "cache_read": 0, "cache_write": 0, "created_at": db.now_iso()})
+            rep = c.get("/reports", auth=("owner", "pw")).text
+            assert "Haiku 5.5" in rep and "AI quality &amp; cost" in rep
+    finally:
+        monkeypatch.delenv("SALESAGENT_CONFIG")
+        config.reload_settings()

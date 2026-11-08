@@ -611,9 +611,19 @@ def reports(_: str = Depends(owner_auth)):
     month = get_settings().now().strftime("%Y-%m")
     sources = "".join(f"<option>{x}</option>" for x in ("meta_ads", "google_ads", "portal", "referral", "website",
                                                         "walk_in", "other"))
-    u = db.q1("SELECT COUNT(*) runs, SUM(input_tokens) i, SUM(output_tokens) o, SUM(cache_read) cr, "
-              "SUM(cache_write) cw FROM usage") or {}
-    cost = ((u.get("i") or 0) * 4 + (u.get("o") or 0) * 20 + (u.get("cr") or 0) * 0.2 + (u.get("cw") or 0) * 5) / 1e6
+    from . import models as _models
+    urows, total_cost, total_runs = "", 0.0, 0
+    for r in db.q("SELECT COALESCE(NULLIF(model, ''), 'claude-opus-5-5') m, COUNT(*) runs, SUM(input_tokens) i, "
+                  "SUM(output_tokens) o, SUM(cache_read) cr, SUM(cache_write) cw FROM usage GROUP BY m"):
+        c = _models.cost_usd(r["m"], r["i"] or 0, r["o"] or 0, r["cr"] or 0, r["cw"] or 0)
+        total_cost += c
+        total_runs += r["runs"]
+        urows += (f"<tr><td>{escape(_models.MODELS.get(r['m'], {}).get('label', r['m']))}</td><td>{r['runs']}</td>"
+                  f"<td>${c:.2f}</td></tr>")
+    month_runs = db.q1("SELECT COUNT(DISTINCT lead_id) n FROM usage WHERE substr(created_at,1,7) = ?",
+                       (get_settings().now().strftime("%Y-%m"),))["n"]
+    u = {"runs": total_runs}
+    cost = total_cost
     return page("Reports", f"""<div class="card"><h3>Marketing spend</h3>
 <p><small>Enter what you spent per channel each month (and per campaign code if you track ads individually). The tables
 below turn it into cost per lead, per qualified lead, per site visit and per booking — so you can increase spend only
@@ -628,7 +638,10 @@ where bookings justify it.</small></p>
 {srows or '<tr><td colspan=6>No spend entered yet.</td></tr>'}</table></div>
 <div class="card"><h3>Unit economics by channel</h3>{econ(marketing.spend_report("source"), "Channel")}</div>
 <div class="card"><h3>By campaign / ad variant</h3>{econ(marketing.spend_report("campaign"), "Campaign")}</div>
-<div class="card"><h3>AI usage</h3>Model calls: {u.get('runs') or 0} · approx. cost ${cost:.2f} (estimate at list prices)</div>""")
+<div class="card"><h3>AI usage</h3>Model calls: {u.get('runs') or 0} · approx. cost ${cost:.2f} (estimate at list prices)
+· buyers handled this month: {month_runs}
+<table style="margin-top:8px"><tr><th>Model</th><th>Calls</th><th>Approx. cost</th></tr>{urows or '<tr><td colspan=3>No AI calls yet.</td></tr>'}</table>
+<small>Change which model handles each stage in Settings → AI quality &amp; cost.</small></div>""")
 
 
 @app.post("/reports/spend")

@@ -72,19 +72,21 @@ def _run(lead_id: int, event: str, detail: str) -> ToolContext:
                      "keeping only what is still relevant.")
     messages: list = [{"role": "user", "content": prompts.lead_briefing(lead_id, event, detail)}]
     max_rounds = int(s.agent.get("max_tool_rounds", 12))
+    from . import models
+    model, why = models.choose(lead, event, detail)
+    ctx.model = model
 
     for _ in range(max_rounds):
         try:
             resp = client.beta.messages.create(
-                model=s.agent.get("model", "claude-opus-5-5"),
+                model=model,
                 max_tokens=16000,
                 system=system,
                 tools=TOOLS,
                 messages=messages,
                 thinking={"type": "adaptive"},
                 output_config={"effort": _effort(lead, event)},
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+                **models.request_extras(model),
             )
         except anthropic.RateLimitError:
             log.warning("rate limited on lead %s; will retry on next follow-up tick", lead_id)
@@ -99,7 +101,7 @@ def _run(lead_id: int, event: str, detail: str) -> ToolContext:
             _retry_later(lead_id)
             break
 
-        _record_usage(lead_id, event, resp)
+        _record_usage(lead_id, event, resp, model)
         ctx.api_ok = True
 
         if resp.stop_reason == "refusal":
@@ -138,12 +140,12 @@ def _retry_later(lead_id: int) -> None:
                                  "followup_purpose": "retry after API error"})
 
 
-def _record_usage(lead_id: int, event: str, resp) -> None:
+def _record_usage(lead_id: int, event: str, resp, model: str = "") -> None:
     u = getattr(resp, "usage", None)
     if not u:
         return
     db.insert("usage", {
-        "lead_id": lead_id, "event": event,
+        "lead_id": lead_id, "event": event, "model": model,
         "input_tokens": getattr(u, "input_tokens", 0) or 0,
         "output_tokens": getattr(u, "output_tokens", 0) or 0,
         "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,

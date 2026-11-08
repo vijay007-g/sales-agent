@@ -158,6 +158,26 @@ def _project(i, pr):
     return item(escape(pr.get("name") or "New project"), body, "project")
 
 
+def _ai_card(agent: dict) -> str:
+    from .models import GROUPS, MODELS, PRESETS
+    preset = agent.get("model_preset") or "best"
+    custom = agent.get("stage_models") or {}
+    opts = [(k, label) for k, (label, _) in PRESETS.items()] + [("custom", "Custom — choose a model per stage below")]
+    model_opts = [(m, info["label"]) for m, info in MODELS.items()]
+    rows = ""
+    for g, (label, _) in GROUPS.items():
+        current = custom.get(g) or PRESETS.get(preset, PRESETS["best"])[1][g]
+        rows += sel(f"agent[stage_models][{g}]", label, current, model_opts)
+    return f"""<div class="card"><h3>AI quality &amp; cost <small>which AI model writes the replies</small></h3>
+<div class="fields">{sel("agent[model_preset]", "Preset", preset, opts,
+    "Price, discount, booking and payment talk, complaints, post-visit strategy, your decisions and hot buyers ALWAYS "
+    "use the top model, whatever you choose here.")}</div>
+<p><small>Approximate AI cost per buyer who goes all the way to booking: Best ≈ ₹90–100 · Balanced ≈ ₹60–75 ·
+Economy ≈ ₹40–55 (most savings come from the many buyers who never get past the first messages).</small></p>
+<details {"open" if preset == "custom" else ""}><summary>Model per stage (used when the preset is Custom)</summary>
+<div class="fields" style="margin-top:8px">{rows}</div></details></div>"""
+
+
 def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> str:
     b = raw.get("business", {})
     o = raw.get("owner", {})
@@ -220,6 +240,8 @@ spreadsheet upload, builders' commission and contacts.</p></div>
 {inp("booking[office_visit_slots_per_hour]", "Office visits per hour", bk.get("office_visit_slots_per_hour", 2), "number")}
 {days("booking[office_days]", "Office open days", bk.get("office_days", [0, 1, 2, 3, 4, 5]))}
 </div></div>
+
+{_ai_card(raw.get("agent", {}))}
 
 <div class="card"><h3>Messaging & loan illustrations</h3><div class="fields">
 {hours("messaging[quiet_hours]", "No messages to customers between", msg.get("quiet_hours"), ("20:30", "09:00"))}
@@ -378,6 +400,15 @@ def build(items, old: dict) -> tuple[dict, list[str]]:
 
     msg = t.get("messaging", {})
     raw["messaging"] = {**old.get("messaging", {}), "quiet_hours": _hours(msg, "quiet_hours", ("20:30", "09:00"))}
+    from .models import GROUPS, MODELS, PRESETS
+    ag = t.get("agent", {})
+    preset = _s(ag, "model_preset") or "best"
+    if preset not in PRESETS and preset != "custom":
+        preset = "best"
+    chosen = {g: v for g, v in (ag.get("stage_models") or {}).items() if g in GROUPS and v in MODELS}
+    raw["agent"] = {**old.get("agent", {}), "model_preset": preset}
+    if preset == "custom":
+        raw["agent"]["stage_models"] = chosen
     fn = t.get("finance", {})
     try:
         raw["finance"] = {"default_rate_pct": float(_s(fn, "default_rate_pct") or 8.5),

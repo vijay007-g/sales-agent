@@ -1423,7 +1423,9 @@ def test_portal_email_webhook_and_mailbox_poll(fresh, monkeypatch):
         def __exit__(self, *a): return False
         def login(self, u, p): assert (u, p) == ("leads@x.com", "app-pass")
         def select(self, box): pass
-        def search(self, *a): return "OK", [b"1"]
+        def search(self, *a):
+            assert a[1] == "SINCE"
+            return "OK", [b"1"]
         def fetch(self, num, what): return "OK", [(b"1 (RFC822)", raw)]
         def store(self, num, flags, val): FakeIMAP.stored.append(num)
     monkeypatch.setattr(lead_sources.imaplib, "IMAP4_SSL", FakeIMAP)
@@ -1557,3 +1559,21 @@ def test_ai_quality_settings_and_reports(fresh, monkeypatch, tmp_path):
     finally:
         monkeypatch.delenv("SALESAGENT_CONFIG")
         config.reload_settings()
+
+
+def test_unreadable_portal_email_is_retried_and_shown(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import lead_sources
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    body = "99acres: a buyer responded to your listing. Contact details are available in your 99acres account."
+    assert lead_sources.process_email("noreply@99acres.com", "New response", body, "<u1>") is None
+    assert lead_sources.process_email("noreply@99acres.com", "New response", body, "<u1>") is None
+    assert db.q1("SELECT COUNT(*) n FROM audit WHERE action = 'email_unreadable'")["n"] == 1     # logged once
+    assert not db.q1("SELECT 1 x FROM processed_events WHERE ext_id = '<u1>'")                 # kept for retry
+    lead_sources.process_email("friend@gmail.com", "Lunch", "see you", "<u2>")
+    with TestClient(app) as c:
+        html = c.get("/sources", auth=("owner", "pw")).text
+    assert "find a phone/email — will retry" in html and "Contact details are available" in html
+    assert "not a portal email" in html

@@ -838,6 +838,7 @@ headline or text (e.g. "… C4-V1") to track it.</p></div>
 Optional <code>LEADS_IMAP_HOST</code> (default imap.gmail.com).</li></ol>
 <p>The system checks the mailbox every 2 minutes and creates a lead from each portal enquiry. Other emails are ignored.</p>
 <form method="post" action="/sources/mail"><button class="grey">Check mailbox now</button></form>
+{_recent_emails_html()}
 <p><small>Using an email-forwarding service instead? POST <code>{{from, subject, text}}</code> to
 <code>{escape(url)}/webhook/portal-email</code> with header <code>X-Webhook-Secret</code>.</small></p></div>
 
@@ -851,6 +852,23 @@ then upload it here. (Google's API needs a separate developer approval; this kee
 <form method="post" action="/sources/google-csv" enctype="multipart/form-data">
 <input type="file" name="file" accept=".csv" required> <input type="month" name="month" value="{month}">
 <button class="grey">Upload Google Ads CSV</button></form></div>""")
+
+
+def _recent_emails_html() -> str:
+    from . import lead_sources
+    rows = ""
+    for e in lead_sources.recent_emails():
+        if e["action"] == "lead_source":
+            res = f'<a href="/leads/{e["lead_id"]}">lead created ✓</a>'
+        elif e["action"] == "email_ignored":
+            res = "not a portal email — ignored"
+        else:
+            res = ("<b>portal email, couldn't find a phone/email — will retry</b><br><small>"
+                   + escape(e.get("snippet", "")[:400]) + "</small>")
+        rows += (f"<tr><td>{escape(e['at'][5:16].replace('T', ' '))}</td><td>{escape(e.get('subject', '') or '')}"
+                 f"<br><small>{escape(e.get('from', '') or e.get('via', '') or '')}</small></td><td>{res}</td></tr>")
+    return ('<h4 style="margin-top:14px">Recent emails</h4><table><tr><th>When</th><th>Email</th><th>Result</th></tr>'
+            + (rows or '<tr><td colspan=3>None yet.</td></tr>') + "</table>")
 
 
 @app.post("/sources/mail")

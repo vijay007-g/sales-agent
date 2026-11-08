@@ -37,12 +37,18 @@ CODE_RE = re.compile(r"\bC\d+-V\d+\b", re.I)
 
 # ------------------------------------------------------------------ helpers
 
-def _seen(source: str, ext_id: str) -> bool:
+def _seen(source: str, ext_id: str, mark: bool = True) -> bool:
     """True if this external event was already processed (Meta and mail servers retry)."""
     if db.q1("SELECT 1 x FROM processed_events WHERE source = ? AND ext_id = ?", (source, ext_id)):
         return True
-    db.insert("processed_events", {"source": source, "ext_id": ext_id, "created_at": db.now_iso()})
+    if mark:
+        _mark(source, ext_id)
     return False
+
+
+def _mark(source: str, ext_id: str) -> None:
+    if not db.q1("SELECT 1 x FROM processed_events WHERE source = ? AND ext_id = ?", (source, ext_id)):
+        db.insert("processed_events", {"source": source, "ext_id": ext_id, "created_at": db.now_iso()})
 
 
 def _project_in(text: str) -> str:
@@ -254,12 +260,22 @@ def parse_portal_email(sender: str, subject: str, body: str) -> dict | None:
 
 def process_email(sender: str, subject: str, body: str, message_id: str = "") -> int | None:
     key = message_id or hashlib.sha256(f"{sender}|{subject}|{body[:2000]}".encode()).hexdigest()
-    if _seen("email", key):
+    if _seen("email", key, mark=False):
         return None
     data = parse_portal_email(sender, subject, body)
     if not data:
-        db.audit(None, "system", "email_ignored", subject[:120])
+        if portal_of(sender, subject, body):
+            # A portal email we couldn't read: keep it for retry, and show a snippet on the Lead sources page once.
+            if not db.q1("SELECT id FROM audit WHERE action = 'email_unreadable' AND detail LIKE ?", (f'%{key[:40]}%',)):
+                text = _strip_html(body) if "<" in body else body
+                db.audit(None, "system", "email_unreadable", json.dumps(
+                    {"key": key[:40], "from": sender[:80], "subject": subject[:120],
+                     "snippet": re.sub(r"\s+", " ", text)[:600]}, ensure_ascii=False))
+            return None
+        _mark("email", key)
+        db.audit(None, "system", "email_ignored", json.dumps({"from": sender[:80], "subject": subject[:120]}))
         return None
+    _mark("email", key)
     lead, _ = _deliver_lead(data, f"Enquired about property on {data['campaign']}",
                             f"{data['campaign']} enquiry email", note=f"Enquiry from {data['campaign']}: {subject[:120]}")
     return lead["id"]
@@ -283,7 +299,8 @@ def poll_mailbox(limit: int = 30) -> dict:
     with imaplib.IMAP4_SSL(host, timeout=30) as M:
         M.login(user, pw)
         M.select("INBOX")
-        _, data = M.search(None, "UNSEEN")
+        since = (get_settings().now() - timedelta(days=3)).strftime("%d-%b-%Y")
+        _, data = M.search(None, "SINCE", since)      # recent mail, opened or not; duplicates are skipped
         for num in (data[0].split() if data and data[0] else [])[:limit]:
             _, parts = M.fetch(num, "(RFC822)")
             raw = next((p[1] for p in parts if isinstance(p, tuple)), b"")
@@ -294,7 +311,7 @@ def poll_mailbox(limit: int = 30) -> dict:
                     created += 1
             finally:
                 M.store(num, "+FLAGS", "\\Seen")
-    db.audit(None, "system", "mailbox_polled", {"leads": created})
+    db.audit(None, "system", "mailbox_polled", {"leads": created, "checked": len(data[0].split()) if data and data[0] else 0})
     return {"configured": True, "leads": created}
 
 
@@ -369,6 +386,19 @@ def import_google_csv(path: str, default_month: str) -> dict:
 
 
 # ------------------------------------------------------------------ status for the dashboard
+
+def recent_emails(limit: int = 12) -> list[dict]:
+    out = []
+    for r in db.q("SELECT created_at, action, detail, lead_id FROM audit WHERE action IN "
+                  "('email_unreadable','email_ignored') OR (action = 'lead_source' AND detail LIKE '%email%') "
+                  "ORDER BY id DESC LIMIT ?", (limit,)):
+        try:
+            d = json.loads(r["detail"])
+        except ValueError:
+            d = {"subject": r["detail"]}
+        out.append({"at": r["created_at"], "action": r["action"], "lead_id": r["lead_id"], **d})
+    return out
+
 
 def status() -> dict:
     week = (get_settings().now() - timedelta(days=7)).isoformat()

@@ -158,6 +158,16 @@ def _project(i, pr):
     return item(escape(pr.get("name") or "New project"), body, "project")
 
 
+def _version() -> str:
+    """Fingerprint of the saved settings, so a stale browser tab can't overwrite newer changes."""
+    import hashlib
+    from .config import config_path
+    try:
+        return hashlib.sha256(config_path().read_bytes()).hexdigest()[:16]
+    except OSError:
+        return ""
+
+
 def _ai_card(agent: dict) -> str:
     from .models import GROUPS, MODELS, PRESETS
     preset = agent.get("model_preset") or "best"
@@ -193,7 +203,7 @@ def render(raw: dict, errors: list[str] | None = None, saved: bool = False) -> s
     elif saved:
         top = '<div class="notice">✅ Saved. The AI uses the new settings from now on.</div>'
     return f"""<style>{CSS}</style>{JS}{top}
-<form method="post" action="/settings">
+<form method="post" action="/settings"><input type="hidden" name="_version" value="{escape(_version())}">
 <div class="card"><h3>Company</h3><div class="fields">
 {inp("business[name]", "Brand name (what customers see)", b.get("name"), required=True)}
 {inp("business[legal_name]", "Registered firm / company (paperwork & billing)", b.get("legal_name"), placeholder="e.g. Skyline Realty (partnership firm)")}

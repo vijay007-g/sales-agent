@@ -1586,3 +1586,26 @@ def test_manual_check_rechecks_ignored_and_finds_portal_deep_in_body(fresh):
     assert db.find_lead_by_phone("9840011122")["campaign"] == "99acres"
     lead_sources.process_email("me@gmail.com", "hello", "no portal here 9840000000", "<d2>")
     assert db.q1("SELECT 1 x FROM processed_events WHERE source = 'email_ignored' AND ext_id = '<d2>'")
+
+
+def test_stale_settings_tab_cannot_overwrite(tmp_path, monkeypatch):
+    import re as _re
+
+    from fastapi.testclient import TestClient
+
+    from salesagent import config
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    monkeypatch.setenv("SALESAGENT_CONFIG", str(tmp_path / "cfg.yaml"))
+    config.reload_settings()
+    try:
+        with TestClient(app) as c:
+            old_tab = _re.search(r'name="_version" value="([^"]*)"', c.get("/settings", auth=("owner", "pw")).text).group(1)
+            c.post("/settings", auth=("owner", "pw"), data={**_form_data(), "_version": old_tab})       # saves
+            stale = c.post("/settings", auth=("owner", "pw"),
+                           data={**_form_data(**{"business[name]": "Old Name"}), "_version": old_tab})
+            assert "changed somewhere else" in stale.text
+        assert get_settings().business["name"] == "Vijay Homes"
+    finally:
+        monkeypatch.delenv("SALESAGENT_CONFIG")
+        config.reload_settings()

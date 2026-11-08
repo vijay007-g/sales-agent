@@ -967,7 +967,12 @@ def settings_page(saved: int = 0, _: str = Depends(owner_auth)):
 async def settings_save(request: Request, _: str = Depends(owner_auth)):
     import yaml
     form = await request.form()
-    raw, errs = settings_form.build(form.multi_items(), _current_raw())
+    sent_version = str(form.get("_version") or "")
+    if sent_version and sent_version != settings_form._version():
+        return page("Settings", '<div class="notice" style="background:#ffe9e6"><b>Not saved:</b> settings were changed '
+                                'somewhere else after you opened this page (another tab or person). '
+                                '<a href="/settings">Reload Settings</a>, then make your change again.</div>')
+    raw, errs = settings_form.build([(k, v) for k, v in form.multi_items() if k != "_version"], _current_raw())
     if not errs:
         errs = validate_config(raw)
     if errs:

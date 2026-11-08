@@ -274,7 +274,8 @@ def _email_text(msg) -> str:
 
 
 def poll_mailbox(limit: int = 30) -> dict:
-    user, pw = env("LEADS_IMAP_USER"), env("LEADS_IMAP_PASSWORD")
+    user = env("LEADS_IMAP_USER").strip().strip('"').strip("'")
+    pw = env("LEADS_IMAP_PASSWORD").replace(" ", "").strip().strip('"').strip("'")   # Google shows app passwords with spaces
     if not user or not pw:
         return {"configured": False}
     host = env("LEADS_IMAP_HOST", "imap.gmail.com")

@@ -1429,7 +1429,7 @@ def test_portal_email_webhook_and_mailbox_poll(fresh, monkeypatch):
     monkeypatch.setattr(lead_sources.imaplib, "IMAP4_SSL", FakeIMAP)
     assert lead_sources.poll_mailbox() == {"configured": False}
     monkeypatch.setenv("LEADS_IMAP_USER", "leads@x.com")
-    monkeypatch.setenv("LEADS_IMAP_PASSWORD", "app-pass")
+    monkeypatch.setenv("LEADS_IMAP_PASSWORD", " app-pass ")
     assert lead_sources.poll_mailbox()["leads"] == 1 and FakeIMAP.stored == [b"1"]
     lead = db.find_lead_by_phone("9123456780")
     assert lead["campaign"] == "housing" and lead["budget_max"] == 12000000

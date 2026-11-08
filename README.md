@@ -130,6 +130,17 @@ Presets: **Best** (top model everywhere — default), **Balanced** (Sonnet 5.5 f
 Whatever is chosen, key moments always use the top model: price / discount / booking / payment talk, complaints,
 post-visit strategy, management decisions and hot buyers. Reports → AI usage shows calls and cost per model.
 
+## Running it safely
+- **Go-live checklist** on the Overview: flags sample numbers, sample bank details, missing RERA/firm details, sample
+  or demo projects, a stopped background clock, AI errors, unconnected sources and team links not yet opened.
+- **AI failure alerts:** if Claude can't reply (credits out, key removed, limits), you get a WhatsApp at most once an
+  hour and replies are retried automatically.
+- **Backups:** a database snapshot is saved daily on the data disk (last 7 kept); Admin → Download backup gives a zip
+  with the database, settings and uploaded files. Also turn on Railway's volume backups.
+- **Personal data deletion:** on a buyer's page, "Delete this buyer's personal data" (DPDP requests).
+- **Login protection:** 10 wrong passwords from one connection block it for 10 minutes.
+- **Pinned versions** in requirements.txt: upgrade deliberately and run the tests.
+
 ## WhatsApp commands
 ```
 Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
@@ -225,5 +236,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 69 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 79 end-to-end tests with a scripted fake model, no API key needed
 ```

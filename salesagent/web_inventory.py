@@ -18,8 +18,8 @@ DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 def auth(request: Request) -> str:
-    from .server import check_auth_header
-    return check_auth_header(request.headers.get("authorization"))
+    from .server import check_auth_header, client_ip
+    return check_auth_header(request.headers.get("authorization"), client_ip(request))
 
 
 UNITS_CSS = """@media (max-width:800px){table.units tr:first-child{display:none}
@@ -261,7 +261,11 @@ Replace all currently available units</label> <button class="grey">Upload CSV</b
 floor_price, quantity, status. Prices like 7500000, 75L or 1.02cr. <a href="/inventory/units-template.csv">Download template</a></small></div>
 {_media_card(p)}
 <form method="post" action="/inventory/project/{p['id']}">{_project_form(p)}
-<div class="savebar"><button>Save project</button><a href="/inventory">Back</a></div></form>"""
+<div class="savebar"><button>Save project</button><a href="/inventory">Back</a></div></form>
+<div class="card"><details><summary>Delete this project</summary><p><small>Removes the project, its units and
+files. Projects with bookings or commissions can only be paused (set "Selling now?" to Paused).</small></p>
+<form method="post" action="/inventory/project/{p['id']}/delete" onsubmit="return confirm('Delete this project permanently?')">
+<button class="red">Delete project</button></form></details></div>"""
     return page(p["name"], body)
 
 
@@ -359,6 +363,23 @@ async def project_save(pid: str, request: Request, _: str = Depends(auth)):
     inventory.ensure_slug(new_id)
     db.audit(None, "owner", "project_saved", data["name"])
     return RedirectResponse(f"/inventory/project/{new_id}?msg=Saved.", status_code=303)
+
+
+@router.post("/inventory/project/{pid}/delete")
+def project_delete(pid: int, _: str = Depends(auth)):
+    used = db.q1("SELECT 1 x FROM commissions WHERE project_id = ? UNION SELECT 1 FROM bookings b JOIN units u "
+                 "ON u.id = b.unit_id WHERE u.project_id = ?", (pid, pid))
+    if used:
+        db.update("inv_projects", pid, {"active": 0})
+        return RedirectResponse(f"/inventory/project/{pid}?msg=This project has bookings, so it was paused instead.",
+                                status_code=303)
+    p = db.q1("SELECT name FROM inv_projects WHERE id = ?", (pid,))
+    for m in db.q("SELECT id FROM media WHERE project_id = ?", (pid,)):
+        sales_kit.delete_media(m["id"])
+    db.q("DELETE FROM units WHERE project_id = ?", (pid,))
+    db.q("DELETE FROM inv_projects WHERE id = ?", (pid,))
+    db.audit(None, "owner", "project_deleted", (p or {}).get("name", str(pid)))
+    return RedirectResponse("/inventory", status_code=303)
 
 
 @router.post("/inventory/project/{pid}/units")

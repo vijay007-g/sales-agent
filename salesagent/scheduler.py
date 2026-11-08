@@ -125,6 +125,14 @@ def tick() -> dict:
                                   + "\n".join(lines))
         stats["registrations_renewed"] = renewed
 
+    # 5b. daily database snapshot (last 7 kept on the data disk)
+    if not _sent_today("backup"):
+        from . import health
+        try:
+            health.snapshot()
+        except Exception as e:  # noqa: BLE001
+            log.warning("backup failed: %s", e)
+
     # 6. weekly learning from won / lost leads (checked once a day)
     if not _sent_today("learning_check"):
         db.audit(None, "system", "learning_check", "")
@@ -263,7 +271,9 @@ def start_background(interval_sec: int = 60) -> threading.Thread:
     stop = threading.Event()
 
     def loop():
+        from . import health
         while not stop.is_set():
+            health.beat()
             try:
                 tick()
             except Exception:  # noqa: BLE001 - keep the clock alive

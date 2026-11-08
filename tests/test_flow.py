@@ -1609,3 +1609,127 @@ def test_stale_settings_tab_cannot_overwrite(tmp_path, monkeypatch):
     finally:
         monkeypatch.delenv("SALESAGENT_CONFIG")
         config.reload_settings()
+
+
+# ------------------------------------------------------------------ operational health
+
+def test_go_live_checklist_flags_sample_setup(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import health, inventory
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    inventory.load_sample()
+    items = {i["text"]: i for i in health.checklist()}
+    assert not items["Your WhatsApp number is real"]["ok"]
+    assert not items["Bank details for the advance (own projects) are real"]["ok"]
+    assert not items["No sample projects are being offered to buyers"]["ok"]
+    assert not items["Demo project 'Sunrise Meadows' removed"]["ok"]
+    assert items["Data is saved on a permanent disk"]["ok"]
+    assert "Anitha" in items["Sales and site team have real numbers"]["fix"] and "Ravi" in items["Sales and site team have real numbers"]["fix"]
+    monkeypatch.setitem(get_settings().owner, "phone", "+919876512340")
+    assert health.checklist()[[i["text"] for i in health.checklist()].index("Your WhatsApp number is real")]["ok"]
+    with TestClient(app) as c:
+        html = c.get("/", auth=("owner", "pw")).text
+    assert "Go-live checklist" in html and "must be fixed before real buyers" in html
+
+
+def test_ai_failure_alerts_owner_once_an_hour(fresh):
+    import anthropic
+
+    from salesagent import health
+    lead = mk_lead()
+
+    def boom(**kw):
+        raise anthropic.BadRequestError("Your credit balance is too low", response=__import__("httpx").Response(
+            400, request=__import__("httpx").Request("POST", "https://api.anthropic.com/v1/messages")), body=None)
+    fresh.fake.beta.messages.create = boom
+    agent.run(lead["id"], "new_lead", "x")
+    agent.run(lead["id"], "customer_message", "y")
+    alerts = [t for t in to(fresh, owner_phone()) if "AI could not reply" in t]
+    assert len(alerts) == 1 and "credits have run out" in alerts[0]
+    assert health.recent_ai_errors() == 2
+    assert db.get_lead(lead["id"])["next_followup_at"]                       # retried later
+
+
+def test_backup_snapshot_zip_and_health_endpoint(monkeypatch):
+    import io
+    import zipfile
+
+    from fastapi.testclient import TestClient
+
+    from salesagent import health
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    mk_lead()
+    name = health.snapshot()
+    assert (health.backup_dir() / name).exists()
+    with TestClient(app) as c:
+        r = c.get("/backup.zip", auth=("owner", "pw"))
+        assert r.status_code == 200 and "attachment" in r.headers["content-disposition"]
+        z = zipfile.ZipFile(io.BytesIO(r.content))
+        assert "salesagent.db" in z.namelist()
+        h = c.get("/health").json()
+        assert "scheduler" in h and h["storage"]["persistent"]
+        assert c.get("/backup.zip").status_code == 401
+
+
+def test_erase_buyer_personal_data(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    lead = mk_lead()
+    db.log_interaction(lead["id"], "in", "whatsapp", "customer", "My address is 12 Main Road")
+    with TestClient(app) as c:
+        assert c.post(f"/leads/{lead['id']}/erase", auth=("owner", "pw"), data={"confirm": "no"}).status_code == 400
+        c.post(f"/leads/{lead['id']}/erase", auth=("owner", "pw"), data={"confirm": "DELETE"})
+    l2 = db.get_lead(lead["id"])
+    assert l2["phone"] is None and l2["name"].startswith("Deleted buyer") and l2["opted_out"] == 1
+    assert "12 Main Road" not in json.dumps(db.q("SELECT content FROM interactions WHERE lead_id = ?", (lead["id"],)))
+    assert db.q1("SELECT 1 x FROM audit WHERE action = 'data_erased'")
+
+
+def test_delete_project_and_save_existing_project(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import inventory
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    p = inventory.get_project("Sunrise Meadows")
+    with TestClient(app) as c:
+        page = c.get(f"/inventory/project/{p['id']}", auth=("owner", "pw")).text
+        assert page.index("Save project") < page.index("Delete this project")
+        r = c.post(f"/inventory/project/{p['id']}", auth=("owner", "pw"),
+                   data={"name": "Sunrise Meadows", "city": "Chennai", "builder_id": str(p["builder_id"]), "active": "1",
+                         "locality": "OMR updated"})
+        assert r.status_code == 200 and inventory.get_project(p["id"])["locality"] == "OMR updated"
+        c.post(f"/inventory/project/{p['id']}/delete", auth=("owner", "pw"))
+    assert inventory.get_project(p["id"]) is None
+    assert not db.q1("SELECT id FROM units WHERE project_id = ?", (p["id"],))
+
+
+def test_login_lockout_after_repeated_wrong_passwords(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import server
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "right-password")
+    server._fails.clear()
+    with TestClient(app) as c:
+        for _ in range(10):
+            assert c.get("/", auth=("owner", "wrong")).status_code == 401
+        assert c.get("/", auth=("owner", "right-password")).status_code == 429
+    server._fails.clear()
+
+
+def test_grouped_menu_has_all_pages(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        html = c.get("/", auth=("owner", "pw")).text
+    for path in ("/leads", "/calls", "/visits", "/inventory", "/commissions", "/registrations", "/sources",
+                 "/campaigns", "/reports", "/insights", "/team", "/settings", "/backup.zip"):
+        assert f'href="{path}"' in html, path

@@ -88,12 +88,16 @@ def _run(lead_id: int, event: str, detail: str) -> ToolContext:
                 output_config={"effort": _effort(lead, event)},
                 **models.request_extras(model),
             )
-        except anthropic.RateLimitError:
+        except anthropic.RateLimitError as e:
             log.warning("rate limited on lead %s; will retry on next follow-up tick", lead_id)
+            from . import health
+            health.ai_failed(lead_id, 429, getattr(e, "message", str(e)))
             _retry_later(lead_id)
             break
         except anthropic.APIStatusError as e:
             log.error("Claude API error %s on lead %s: %s", e.status_code, lead_id, e.message)
+            from . import health
+            health.ai_failed(lead_id, e.status_code, e.message)
             _retry_later(lead_id)
             break
         except anthropic.APIConnectionError as e:

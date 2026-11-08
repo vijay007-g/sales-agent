@@ -46,7 +46,34 @@ def _include_routers() -> None:
     app.include_router(portals_router)
 
 
-def check_auth_header(header: str | None) -> str:
+_fails: dict = {}
+
+
+def _too_many(ip: str) -> bool:
+    import time as _t
+    now = _t.time()
+    q = [x for x in _fails.get(ip, []) if now - x < 600]
+    _fails[ip] = q
+    return len(q) >= 10
+
+
+def _failed(ip: str) -> None:
+    import time as _t
+    _fails.setdefault(ip, []).append(_t.time())
+
+
+def check_auth_header(header: str | None, ip: str = "") -> str:
+    if ip and _too_many(ip):
+        raise HTTPException(429, "Too many wrong attempts. Try again in 10 minutes.")
+    try:
+        return _check_auth(header)
+    except HTTPException as e:
+        if ip and e.status_code == 401 and header:
+            _failed(ip)
+        raise
+
+
+def _check_auth(header: str | None) -> str:
     """Accepts the browser's Basic login (password in either box, stray spaces ignored) or, for automation,
     `Authorization: Bearer <DASHBOARD_API_TOKEN>`. Raises 401/503 otherwise."""
     import base64
@@ -77,8 +104,12 @@ def check_auth_header(header: str | None) -> str:
     raise HTTPException(401, "Not authenticated", headers={"WWW-Authenticate": "Basic"})
 
 
+def client_ip(request: Request) -> str:
+    return (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "")).split(",")[0].strip()
+
+
 def owner_auth(request: Request) -> str:
-    return check_auth_header(request.headers.get("authorization"))
+    return check_auth_header(request.headers.get("authorization"), client_ip(request))
 
 
 def _check_secret(given: str | None) -> None:
@@ -210,11 +241,17 @@ input,textarea,select{padding:6px;border:1px solid #cfd4dd;border-radius:6px;fon
 .in{background:#eef1f6}.out{background:#dcf3e4;margin-left:auto}.sys{background:#fff7e0;margin-left:auto;font-size:13px}
 .row{display:flex;flex-direction:column}
 header{flex-wrap:wrap;row-gap:8px;position:sticky;top:0;z-index:5}
+details.nav{position:relative}details.nav summary{cursor:pointer;color:#cfd6e4;list-style:none}
+details.nav summary::-webkit-details-marker{display:none}
+details.nav>div{position:absolute;top:28px;left:0;background:#1d2330;border-radius:8px;padding:6px 0;min-width:190px;
+box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:20}details.nav>div a{display:block;padding:8px 14px}
+details.nav>div a:hover{background:#2b3446}
 .card{overflow-x:auto}
 .grid2{display:grid;grid-template-columns:1fr 1.4fr;gap:16px}.grid2>div{min-width:0}
 .notice{background:#fff7e0;border:1px solid #f1d38a;border-radius:8px;padding:10px 14px;margin-bottom:16px}
 @media (max-width:800px){
-  header{padding:10px 12px;gap:14px;overflow-x:auto;flex-wrap:nowrap;white-space:nowrap}
+  header{padding:10px 12px;gap:14px;flex-wrap:wrap;white-space:nowrap}
+  details.nav>div{position:fixed;left:12px;right:12px;top:auto}
   header b{font-size:15px}
   main{padding:12px}
   .grid2{grid-template-columns:1fr}
@@ -233,10 +270,15 @@ def page(title: str, body: str) -> HTMLResponse:
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#1d2330">
 <link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
-<header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
-<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/team">Team</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
-<a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
-<a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
+<header><b>{escape(get_settings().business['name'])}</b>
+<a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a>
+<details class="nav"><summary>Sales ▾</summary><div><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
+<a href="/registrations">Builder registrations</a></div></details>
+<details class="nav"><summary>Marketing ▾</summary><div><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
+<a href="/reports">Reports</a><a href="/insights">Learning</a></div></details>
+<details class="nav"><summary>Admin ▾</summary><div><a href="/team">Team</a><a href="/settings">Settings</a>
+{'<a href="/test">Test</a><a href="/test/outbox">Outbox</a>' if test_mode() else ''}<a href="/backup.zip">Download backup</a></div></details>
+</header>
 <main>{_storage_banner()}{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
 
 
@@ -305,7 +347,7 @@ Floor {pricing.fmt_money(floor)} · Customer ask {pricing.fmt_money(o['customer_
     hrows = "".join(f'<tr><td><a href="/leads/{h["id"]}">#{h["id"]} {escape(h["name"] or "")}</a></td><td>{escape(h["phone"] or "")}</td>'
                     f'<td>{h["stage"]}</td><td><form method="post" action="/leads/{h["id"]}/resume"><input name="note" placeholder="what happened">'
                     f'<button>Hand back to AI</button></form></td></tr>' for h in human)
-    body = f"""<div class="card"><h3>Pipeline</h3><div class="stages">{stages}</div></div>
+    body = f"""{_checklist_card()}<div class="card"><h3>Pipeline</h3><div class="stages">{stages}</div></div>
 <div class="card"><h3>Price approvals waiting ({len(offers)})</h3><table>{orows or '<tr><td>Nothing waiting.</td></tr>'}</table></div>
 <div class="card"><h3>Bookings to confirm ({len(bookings)})</h3><table>{brows or '<tr><td>Nothing waiting.</td></tr>'}</table></div>
 <div class="card"><h3>Advance payments awaited ({len(pays)})</h3><table>{prows or '<tr><td>None.</td></tr>'}</table>
@@ -314,6 +356,23 @@ Floor {pricing.fmt_money(floor)} · Customer ask {pricing.fmt_money(o['customer_
 {_partner_alerts()}
 <div class="card"><h3>Leads needing you ({len(human)})</h3><table>{hrows or '<tr><td>None.</td></tr>'}</table></div>"""
     return page("Overview", body)
+
+
+def _checklist_card() -> str:
+    from . import health
+    items = health.checklist()
+    todo = [i for i in items if not i["ok"]]
+    blockers = [i for i in todo if i["level"] == "block"]
+    if not todo:
+        return '<div class="card"><b>✅ Everything is set up.</b></div>'
+    rows = "".join(f'<li style="margin:6px 0">{"🔴" if i["level"] == "block" else "🟡"} <b>{escape(i["text"])}</b> — '
+                   f'<a href="{i["link"]}">{escape(i["fix"])}</a></li>' for i in todo)
+    done = len(items) - len(todo)
+    head = (f"🔴 {len(blockers)} must be fixed before real buyers" if blockers else "🟡 Nearly ready") + \
+        f" · {done}/{len(items)} done"
+    return (f'<div class="card" style="border:2px solid {"#c9372c" if blockers else "#e0a800"}">'
+            f'<details {"open" if blockers else ""}><summary><b>Go-live checklist — {head}</b></summary>'
+            f'<ul style="list-style:none;padding-left:4px">{rows}</ul></details></div>')
 
 
 def _partner_alerts() -> str:
@@ -465,7 +524,12 @@ def lead_detail(lead_id: int, _: str = Depends(owner_auth)):
 <div class="card"><h4>Message the customer yourself</h4>
 <form method="post" action="/leads/{lead_id}/send"><textarea name="text" rows="2" style="width:100%"
 placeholder="Goes to the customer on WhatsApp in {escape(team.rm_for(lead)['name'])}'s name"></textarea><button>Send to customer</button></form></div>
-<div class="card"><h4>Activity log</h4><table>{lrows}</table></div></div></div>{AUTO_REFRESH}"""
+<div class="card"><h4>Activity log</h4><table>{lrows}</table></div>
+<div class="card"><details><summary>Delete this buyer's personal data</summary><p><small>Use when the buyer asks you to
+delete their details (India's DPDP Act). Name, phone, email, messages and notes are removed; the record stays as
+"Deleted buyer" for your statistics. This cannot be undone.</small></p>
+<form method="post" action="/leads/{lead_id}/erase"><input name="confirm" placeholder="Type DELETE to confirm">
+<button class="red">Delete personal data</button></form></details></div></div></div>{AUTO_REFRESH}"""
     return page(lead["name"] or "Lead", body)
 
 
@@ -620,6 +684,9 @@ def reports(_: str = Depends(owner_auth)):
         total_runs += r["runs"]
         urows += (f"<tr><td>{escape(_models.MODELS.get(r['m'], {}).get('label', r['m']))}</td><td>{r['runs']}</td>"
                   f"<td>${c:.2f}</td></tr>")
+    cache = db.q1("SELECT SUM(cache_read) cr, SUM(input_tokens) i, SUM(cache_write) cw FROM usage") or {}
+    denom = (cache.get("cr") or 0) + (cache.get("i") or 0) + (cache.get("cw") or 0)
+    cache_pct = round(100 * (cache.get("cr") or 0) / denom) if denom else 0
     month_runs = db.q1("SELECT COUNT(DISTINCT lead_id) n FROM usage WHERE substr(created_at,1,7) = ?",
                        (get_settings().now().strftime("%Y-%m"),))["n"]
     u = {"runs": total_runs}
@@ -639,7 +706,7 @@ where bookings justify it.</small></p>
 <div class="card"><h3>Unit economics by channel</h3>{econ(marketing.spend_report("source"), "Channel")}</div>
 <div class="card"><h3>By campaign / ad variant</h3>{econ(marketing.spend_report("campaign"), "Campaign")}</div>
 <div class="card"><h3>AI usage</h3>Model calls: {u.get('runs') or 0} · approx. cost ${cost:.2f} (estimate at list prices)
-· buyers handled this month: {month_runs}
+· buyers handled this month: {month_runs} · prompt-cache reuse: {cache_pct}% of input (higher = cheaper)
 <table style="margin-top:8px"><tr><th>Model</th><th>Calls</th><th>Approx. cost</th></tr>{urows or '<tr><td colspan=3>No AI calls yet.</td></tr>'}</table>
 <small>Change which model handles each stage in Settings → AI quality &amp; cost.</small></div>""")
 
@@ -1086,10 +1153,32 @@ def icon():
     return Response(svg, media_type="image/svg+xml")
 
 
+@app.get("/backup.zip")
+def backup_download(_: str = Depends(owner_auth)):
+    from fastapi.responses import Response
+
+    from . import health as _h
+    data = _h.backup_zip()
+    db.audit(None, "owner", "backup_downloaded", f"{len(data)} bytes")
+    name = f"skyline-backup-{get_settings().now():%Y-%m-%d}.zip"
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": f"attachment; filename={name}"})
+
+
+@app.post("/leads/{lead_id}/erase")
+def erase_lead(lead_id: int, confirm: str = Form(""), _: str = Depends(owner_auth)):
+    from . import health as _h
+    if confirm != "DELETE":
+        raise HTTPException(400, "Type DELETE to confirm")
+    _h.erase_lead(lead_id)
+    return RedirectResponse(f"/leads/{lead_id}", status_code=303)
+
+
 @app.get("/health")
 def health():
+    from . import health as _h
     from .config import storage_status
-    return {"ok": True, "storage": storage_status()}
+    sch = _h.scheduler_status()
+    return {"ok": sch["running"] is not False, "storage": storage_status(), "scheduler": sch}
 
 
 _include_routers()

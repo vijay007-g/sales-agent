@@ -94,6 +94,24 @@ personally handling their enquiry. It then sets up a call.
 - **Trial inventory:** Inventory → "Load sample inventory" adds four sample projects (Chennai and Bangalore, own and
   partner) with units and charges; "Remove sample inventory" deletes them before go-live.
 
+## Team portals, call discipline, visit reminders, silent buyers
+- **Team page** (dashboard → Team): each salesperson and site team member gets a personal link — no password. Send it
+  on WhatsApp; they tap "Add to Home screen" and it works like an app. "New link" revokes the old one.
+- **Salesperson portal** (`/s/<link>`): a lobby with calls to make now (overdue flagged), messages to approve,
+  upcoming visits and all their buyers. Each buyer has a **path to booking** (intro call → needs → visit booked →
+  confirmation call → visit → post-visit call → price → booking → advance) with the current step highlighted, the AI's
+  call brief, Call / WhatsApp buttons and a one-tap call log. Salespeople only see their own buyers.
+- **Site team app** (`/site/<link>`): today's and upcoming visits and reports due. Each visit has steps: confirm with the
+  customer → customer arrived → show the right homes → fill the report. "Confirmed" and "Arrived" notify the
+  salesperson instantly.
+- **Call discipline:** heads-up 15 min before each call, positive nudges 20 and 60 min after it's due, and management
+  is told if a call is still not done after 3 hours.
+- **Visit reminders to everyone:** buyer, site coordinator and salesperson the day before and 2 hours before; the
+  salesperson automatically gets a confirmation-call task the day before; missing visit reports are chased.
+- **When a buyer goes quiet:** 1) a useful WhatsApp with one easy question → 2) reconnect call → 3) a WhatsApp with
+  something new → 4) another call at a different time of day → 5) a polite "reply 1 to continue, 2 to pause" → nurture
+  (a useful update every 2 weeks; warm buyers also get a periodic check-in call). Any reply restarts the conversation.
+
 ## WhatsApp commands
 ```
 Management:  APPROVE 7 | REJECT 7 <note> | COUNTER 7 97.5L <note> | CONFIRM B3 | HOLD B3 <note>
@@ -189,5 +207,5 @@ this system deliberately has no cold-messaging or scraping features.
 
 ## Tests
 ```bash
-python -m pytest -q    # 46 end-to-end tests with a scripted fake model, no API key needed
+python -m pytest -q    # 59 end-to-end tests with a scripted fake model, no API key needed
 ```

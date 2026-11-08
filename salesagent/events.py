@@ -91,21 +91,78 @@ def inbound_message(phone: str | None, email: str | None, text: str, channel: st
     return lead_id
 
 
+PLAYBOOK_STAGES = {"new", "contacted", "qualified", "visit_done", "negotiation"}
+
+# What happens when a buyer goes quiet (each step fires at the stage's follow-up timing from Settings):
+NO_REPLY_STEPS = {
+    1: ("message", "Send ONE short, warm WhatsApp that gives them something useful for their need (a matching unit, "
+                   "the floor plan or cost sheet via the sales-kit tools, or a quick answer to their last question) and "
+                   "ends with one easy question they can answer in a word."),
+    2: ("call", "No reply on WhatsApp — reconnect by phone"),
+    3: ("message", "Send a WhatsApp with something NEW (a different unit or price point, an EMI illustration, a "
+                   "possession or construction update, a visit slot this weekend) and a simple yes/no question. Don't "
+                   "repeat earlier messages or mention that they haven't replied."),
+    4: ("call", "Second reconnect call, at a different time of day"),
+    5: ("message", "Send one polite close-the-loop message: say you don't want to keep disturbing them, and ask "
+                   "them to reply 1 to keep receiving options or 2 to pause for now. Then move the lead to nurture."),
+}
+
+
+def _next_call_time() -> float:
+    """Minutes from now for a reconnect call at a different time of day than now (evening vs late morning)."""
+    now = get_settings().now()
+    target = now.replace(hour=18, minute=30) if now.hour < 15 else (now + timedelta(days=1)).replace(hour=11, minute=0)
+    return max(15.0, (target - now).total_seconds() / 60)
+
+
 def followup_due(lead_id: int) -> None:
     lead = db.get_lead(lead_id)
     s = get_settings()
     attempts = (lead["followup_attempts"] or 0) + 1
     db.update("leads", lead_id, {"followup_attempts": attempts, "next_followup_at": None})
-    limit = int(s.followups.get("max_attempts_before_nurture", 5))
-    hint = ""
-    if attempts >= limit and lead["stage"] not in ("nurture", "booking_pending", "payment_pending"):
-        hint = (f" This is attempt {attempts} with no reply. Ask the salesperson for one last call, send one "
-                "warm message that leaves the door open, then move the lead to nurture.")
+
+    if lead["stage"] == "nurture":
+        warm = lead.get("temperature") in ("hot", "warm")
+        if warm and attempts % 2 == 0 and not db.q1(
+                "SELECT id FROM call_tasks WHERE lead_id = ? AND status = 'open'", (lead_id,)):
+            team.create_call_task(lead_id, "Nurture check-in call", _next_call_time(),
+                                  _fallback_brief(lead) + "\nLong-quiet buyer. Friendly check-in: any change in plans? "
+                                                          "Share one relevant update; no pressure.")
+        _run(lead_id, "followup_due",
+             "Nurture touch for a quiet buyer: send one low-pressure, genuinely useful update (new launch or unit that "
+             "fits them, construction progress, loan-rate news, a relevant offer) with an easy way back in. "
+             "Keep it short; don't mention that they haven't replied.")
+        return
+
+    if lead["stage"] not in PLAYBOOK_STAGES:
+        _run(lead_id, "followup_due",
+             f"Follow-up time. Purpose noted earlier: {lead.get('followup_purpose') or 'general check-in'}. "
+             "Send a useful follow-up that moves them one step closer to booking, and/or create a call task.")
+        return
+
+    step = min(attempts, 5)
+    kind, instruction = NO_REPLY_STEPS[step]
+    db.audit(lead_id, "system", "no_reply_step", {"step": step, "kind": kind})
+    if kind == "call":
+        existing = db.q1("SELECT id FROM call_tasks WHERE lead_id = ? AND status = 'open'", (lead_id,))
+        if not existing:
+            team.create_call_task(lead_id, f"{instruction} (follow-up {step}/5)", _next_call_time(),
+                                  _fallback_brief(lead) + "\nThey haven't replied to our last messages. Be warm and "
+                                                          "brief; ask one easy question; offer to WhatsApp the details. "
+                                                          "If no answer, log NOANSWER — the AI will send a short note.")
+        cadence = s.followups.get(lead["stage"], [24, 48, 96])
+        hours = float(cadence[min(attempts, len(cadence) - 1)])
+        db.update("leads", lead_id, {"next_followup_at": (s.now() + timedelta(hours=hours)).isoformat(timespec="minutes"),
+                                     "followup_purpose": f"no reply: step {step + 1} of 5"})
+        return
     _run(lead_id, "followup_due",
-         f"Follow-up time. Purpose noted earlier: {lead.get('followup_purpose') or 'general check-in'}. "
-         f"Attempt #{attempts}. Follow your strategy for this lead: send a follow-up that adds something new and "
-         f"moves them one step closer to booking, and/or create a call task (alternate channels - if the last "
-         f"two messages got no reply, a call is usually better).{hint}")
+         f"The buyer hasn't replied (follow-up {step} of 5). Purpose noted earlier: "
+         f"{lead.get('followup_purpose') or 'general check-in'}. {instruction}")
+    if step == 5:
+        try:
+            pipeline.move(lead_id, "nurture", "system", "no reply after 5 follow-ups")
+        except pipeline.StageError:
+            pass
 
 
 def visit_outcome(visit_id: int, form: dict) -> None:
@@ -436,8 +493,15 @@ def _ensure_next_step(lead_id: int, ctx) -> None:
 
 def _fallback_brief(lead: dict) -> str:
     strat = json.loads(lead["strategy"]) if lead.get("strategy") else {}
-    return (f"Stage: {lead['stage']}. Wants {lead['unit_type'] or '?'}, budget "
-            f"{pricing.fmt_money(lead['budget_max'])}, timeline {lead['timeline'] or '?'}.\n"
-            f"Notes: {(lead['memory'] or '-')[-400:]}\n"
-            + (f"Plan: {' -> '.join(strat.get('next_actions', []))}" if strat else
-               "Goal: understand where they are and agree the next step toward booking."))
+    known = [x for x in (lead.get("unit_type"), pricing.fmt_money(lead["budget_max"]) if lead.get("budget_max") else "",
+                         lead.get("city"), lead.get("timeline")) if x]
+    missing = [label for label, k in (("size", "unit_type"), ("budget", "budget_max"), ("timeline", "timeline"))
+               if not lead.get(k)]
+    lines = [f"Stage: {lead['stage'].replace('_', ' ')}." + (f" Known: {', '.join(known)}." if known else "")]
+    if missing:
+        lines.append(f"Find out: {', '.join(missing)}, and who decides.")
+    if lead.get("memory"):
+        lines.append(f"Notes: {lead['memory'][-400:]}")
+    lines.append(f"Plan: {' -> '.join(strat.get('next_actions', []))}" if strat else
+                 "Goal: understand where they are and agree the next step toward booking.")
+    return "\n".join(lines)

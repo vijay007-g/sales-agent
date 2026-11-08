@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS site_visits (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id INTEGER, kind TEXT DEFAULT 'site', project TEXT, scheduled_at TEXT, site_person TEXT,
     site_person_phone TEXT,
-    form_token TEXT, form_data TEXT,
+    form_token TEXT, form_data TEXT, confirmed_at TEXT, arrived_at TEXT,
     status TEXT DEFAULT 'scheduled',
     reminders_sent TEXT DEFAULT '[]',
     feedback TEXT, interest_level TEXT, liked_units TEXT, objections TEXT,
@@ -157,6 +157,12 @@ CREATE TABLE IF NOT EXISTS media (
 CREATE TABLE IF NOT EXISTS ad_spend (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     month TEXT, source TEXT, campaign TEXT, city TEXT, amount INTEGER, notes TEXT, created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS team_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    role TEXT, name TEXT, phone TEXT, token TEXT,
+    revoked INTEGER DEFAULT 0, created_at TEXT, last_seen TEXT
 );
 
 CREATE TABLE IF NOT EXISTS insights (

@@ -39,9 +39,11 @@ app = FastAPI(title="AI Sales Agent", lifespan=lifespan)
 
 def _include_routers() -> None:
     from .web_inventory import router as inventory_router
+    from .web_portals import router as portals_router
     from .web_public import router as public_router
     app.include_router(inventory_router)
     app.include_router(public_router)
+    app.include_router(portals_router)
 
 
 def check_auth_header(header: str | None) -> str:
@@ -197,7 +199,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])} · AI Sales</b><a href="/">Overview</a><a href="/leads">Leads</a>
-<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
+<a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/team">Team</a><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
 <a href="/campaigns">Campaigns</a><a href="/insights">Learning</a>
 <a href="/reports">Reports</a>{'<a href="/test">Test</a>' if test_mode() else ''}<a href="/settings">Settings</a></header>
 <main>{_storage_banner()}{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
@@ -750,6 +752,40 @@ async def call_form_submit(token: str, request: Request):
                                                        "callback_time")}
     events.dispatch(events.call_logged, t["id"], outcome, data)
     return _form_page("Thanks", "<h3>Saved.</h3><p>The follow-up WhatsApp will go out in your name.</p>")
+
+
+# ============================ team portals (links for salespeople and site team) ============================
+
+@app.get("/team", response_class=HTMLResponse)
+def team_page(msg: str = "", _: str = Depends(owner_auth)):
+    from . import team_access
+    rows = ""
+    for m in team_access.members():
+        url = team_access.portal_url(m["role"], m["token"])
+        acc = db.q1("SELECT last_seen FROM team_access WHERE id = ?", (m["access_id"],))
+        rows += f"""<tr><td><b>{escape(m['name'])}</b><br><small>{escape(m['phone'])}</small></td>
+<td>{'Salesperson portal' if m['role'] == 'sales' else 'Site visit app'}</td>
+<td><a href="{escape(url)}" target="_blank">Open</a><br><small>last used {escape((acc['last_seen'] or 'never')[:16].replace('T', ' '))}</small></td>
+<td><form method="post" action="/team/{m['access_id']}" style="display:flex;gap:6px;flex-wrap:wrap">
+<button name="action" value="send">Send link on WhatsApp</button>
+<button name="action" value="new" class="grey" onclick="return confirm('Replace the link? The old one stops working.')">New link</button></form></td></tr>"""
+    return page("Team", f"""{f'<div class="notice">{escape(msg)}</div>' if msg else ''}
+<div class="card"><h3>Team portals</h3><p><small>Each salesperson and site team member has a personal link — no password.
+Send it to them on WhatsApp; they open it and tap "Add to Home screen" so it works like an app. If a phone is lost or
+someone leaves, click "New link" and the old one stops working. People come from Settings (sales team, site team) and
+from project site hosts on the Inventory page.</small></p>
+<table><tr><th>Person</th><th>Portal</th><th>Link</th><th></th></tr>{rows or '<tr><td>No team members yet — add them in Settings.</td></tr>'}</table></div>""")
+
+
+@app.post("/team/{access_id}")
+def team_action(access_id: int, action: str = Form(...), _: str = Depends(owner_auth)):
+    from . import team_access
+    if action == "new":
+        team_access.regenerate(access_id)
+        return RedirectResponse("/team?msg=New link created. Send it to them; the old link no longer works.", status_code=303)
+    ok = team_access.send_link(access_id)
+    return RedirectResponse("/team?msg=" + ("Link sent on WhatsApp." if ok else "Could not send — check the number."),
+                            status_code=303)
 
 
 # ============================ settings (edit config from any device) ============================

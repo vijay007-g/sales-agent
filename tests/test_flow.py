@@ -118,7 +118,7 @@ def test_new_lead_assigned_first_message_and_intro_call(fresh):
     assert lead["rm_name"] == "Anitha" and lead["stage"] == "contacted"
     assert any("Anitha here" in t for t in to(fresh, lead["phone"]))
     rm_msgs = to(fresh, rm_phone())
-    assert any("CALL C1" in t and "/f/call/" in t and "fix visit" in t for t in rm_msgs)
+    assert any("CALL C1" in t and "/s/" in t and "/lead/" in t and "fix visit" in t for t in rm_msgs)
     call = fresh.fake.calls[0]
     system = call["system"][0]["text"] + call["system"][1]["text"]
     for u in (u for p in get_settings().projects for u in p["units"]):
@@ -368,9 +368,17 @@ def test_scheduler_followups_and_call_alerts(fresh, monkeypatch):
     assert stats["followups"] == 1
     assert db.get_lead(lead["id"])["followup_attempts"] == 1
     assert any(f"CALL C{t['task_id']}" in m for m in to(fresh, rm_phone()))
-    db.update("call_tasks", t["task_id"], {"due_at": (get_settings().now() - timedelta(hours=3)).isoformat()})
+    db.update("call_tasks", t["task_id"], {"due_at": (get_settings().now() - timedelta(hours=4)).isoformat()})
     scheduler.tick()
-    assert any("Overdue call" in m for m in to(fresh, rm_phone()))
+    assert any("quick win" in m for m in to(fresh, rm_phone()))                   # 1st positive nudge
+    scheduler.tick()
+    assert any("far more likely" in m for m in to(fresh, rm_phone()))             # 2nd nudge
+    assert not any("Call not done" in m for m in to(fresh, owner_phone()))
+    scheduler.tick()
+    assert any("Call not done for 3+ hours" in m for m in to(fresh, owner_phone()))   # management told
+    n = len(fresh.sent)
+    scheduler.tick()
+    assert not any("Call not done" in t for _, t in fresh.sent[n:])               # only once
 
 
 # ------------------------------------------------------------------ learning + campaigns
@@ -1130,3 +1138,152 @@ def test_call_tasks_close_when_lead_booked_or_lost():
     team.create_call_task(lead["id"], "Follow up", 30, "b")
     pipeline.move(lead["id"], "lost", "system", "bought elsewhere")
     assert db.q1("SELECT status FROM call_tasks WHERE lead_id = ?", (lead["id"],))["status"] == "cancelled"
+
+
+# ------------------------------------------------------------------ team portals, reminders, no-reply sequence
+
+def _two_rms(monkeypatch):
+    s = get_settings()
+    monkeypatch.setattr(s, "raw", {**s.raw, "sales_team": [
+        {"name": "Anitha", "phone": "+919800000010", "message_mode": "auto"},
+        {"name": "Kiran", "phone": "+919800000020", "message_mode": "auto"}]})
+
+
+def test_sales_portal_lobby_lead_steps_and_privacy(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import team_access
+    from salesagent.server import app
+    _two_rms(monkeypatch)
+    mine = mk_lead(name="Asha")
+    db.update("leads", mine["id"], {"rm_name": "Anitha", "budget_max": 8000000, "unit_type": "2BHK"})
+    other, _ = leads.upsert_lead({"name": "Bala", "phone": "9000099999"})
+    db.update("leads", other["id"], {"rm_name": "Kiran"})
+    t = team.create_call_task(mine["id"], "Intro call", 10, "Ask about budget and visit day")
+    tok = team_access.ensure("sales", "Anitha", "+919800000010")["token"]
+    with TestClient(app) as c:
+        lobby = c.get(f"/s/{tok}").text
+        assert "Hi Anitha" in lobby and "Asha" in lobby and "Bala" not in lobby and "Intro call" in lobby
+        page = c.get(f"/s/{tok}/lead/{mine['id']}").text
+        assert "Path to booking" in page and "Ask about budget" in page and 'href="tel:' in page
+        assert 'class="now"' in page and "Intro call" in page
+        assert c.get(f"/s/{tok}/lead/{other['id']}").status_code == 404          # not her buyer
+        assert c.get("/s/not-a-real-token").status_code == 404
+        assert c.get(f"/s/{tok}/manifest.json").json()["start_url"] == f"/s/{tok}"
+        fresh.fake.queue([tool_use("send_message", text="Lovely speaking with you!", channel="whatsapp")])
+        r = c.post(f"/s/{tok}/call/{t['task_id']}", data={"outcome": "spoke", "summary": "Wants east facing, visit Sat"})
+        assert "Call saved" in r.text
+    assert db.q1("SELECT status FROM call_tasks WHERE id = ?", (t["task_id"],))["status"] == "done"
+    assert "east facing" in fresh.fake.briefings[-1]
+    steps = __import__("salesagent.web_portals", fromlist=["x"]).lead_steps(db.get_lead(mine["id"]))
+    assert [x["state"] for x in steps[:3]] == ["done", "done", "now"]                # intro + qualify done → book visit
+
+
+def test_sales_portal_draft_approval(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import team_access
+    from salesagent.server import app
+    monkeypatch.setitem(get_settings().sales_team[0], "message_mode", "review")
+    lead = mk_lead()
+    team.assign_rm(lead["id"])
+    team.send_or_draft(lead["id"], "Hi Asha, Saikrupa's assistant here.")
+    tok = team_access.ensure("sales", "Anitha", rm_phone())["token"]
+    with TestClient(app) as c:
+        assert "Messages to approve" in c.get(f"/s/{tok}").text
+        c.post(f"/s/{tok}/draft/1", data={"action": "send", "text": "Hi Asha, Saikrupa's assistant here."})
+    assert to(fresh, lead["phone"]) == ["Hi Asha, Saikrupa's assistant here."]
+
+
+def test_site_app_visit_steps_notify_salesperson(fresh):
+    from fastapi.testclient import TestClient
+
+    from salesagent import team_access
+    from salesagent.server import app
+    lead = mk_lead()
+    team.assign_rm(lead["id"])
+    pipeline.move(lead["id"], "qualified", "system")
+    tomorrow = (get_settings().now() + timedelta(days=1)).date().isoformat()
+    v = visits.book(lead["id"], "Sunrise Meadows", visits.free_slots("Sunrise Meadows", tomorrow)[0]["time"], "x")
+    tok = team_access.ensure("site", "Ravi", site_phone())["token"]
+    other = team_access.ensure("site", "Someone", "+919811122233")["token"]
+    with TestClient(app) as c:
+        assert "Asha" in c.get(f"/site/{tok}").text and "Coming up" in c.get(f"/site/{tok}").text
+        page = c.get(f"/site/{tok}/visit/{v['visit_id']}").text
+        assert "Called &amp; confirmed" in page and "Fill visit report" not in page.split('class="now"')[0]
+        assert c.get(f"/site/{other}/visit/{v['visit_id']}").status_code == 404     # not their visit
+        c.post(f"/site/{tok}/visit/{v['visit_id']}/confirm")
+        c.post(f"/site/{tok}/visit/{v['visit_id']}/arrived")
+        page = c.get(f"/site/{tok}/visit/{v['visit_id']}").text
+        assert "Fill visit report" in page
+    assert any("confirmed Asha" in t for t in to(fresh, rm_phone()))
+    assert any("has arrived at Sunrise Meadows" in t for t in to(fresh, rm_phone()))
+
+
+def test_team_page_links_send_and_regenerate(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent.server import app
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        page = c.get("/team", auth=("owner", "pw")).text
+        assert "Anitha" in page and "Salesperson portal" in page and "Site visit app" in page
+        acc = db.q1("SELECT * FROM team_access WHERE role = 'sales'")
+        c.post(f"/team/{acc['id']}", auth=("owner", "pw"), data={"action": "send"})
+        assert any(acc["token"] in t and "Add to Home screen" in t for t in to(fresh, rm_phone()))
+        c.post(f"/team/{acc['id']}", auth=("owner", "pw"), data={"action": "new"})
+        assert c.get(f"/s/{acc['token']}").status_code == 404                     # old link revoked
+        new = db.q1("SELECT token FROM team_access WHERE role = 'sales' AND revoked = 0")["token"]
+        assert c.get(f"/s/{new}").status_code == 200
+
+
+def test_visit_reminders_reach_buyer_site_and_salesperson(fresh, monkeypatch):
+    lead = mk_lead()
+    team.assign_rm(lead["id"])
+    pipeline.move(lead["id"], "qualified", "system")
+    day = (get_settings().now() + timedelta(days=1)).date().isoformat()
+    slot = visits.free_slots("Sunrise Meadows", day)[0]["time"]
+    visits.book(lead["id"], "Sunrise Meadows", slot, "x")
+    monkeypatch.setattr(scheduler, "in_quiet_hours", lambda now=None: False)
+    when = db.parse_dt(slot)
+    monkeypatch.setattr(get_settings(), "now", lambda: when - timedelta(hours=23))
+    scheduler.tick()
+    assert any("reminder of your visit" in t for t in to(fresh, lead["phone"]))
+    assert any(t.startswith("Tomorrow: site visit") for t in to(fresh, site_phone()))
+    assert any("visits Sunrise Meadows" in t and "confirmation call" in t for t in to(fresh, rm_phone()))
+    assert db.q1("SELECT purpose FROM call_tasks WHERE lead_id = ?", (lead["id"],))["purpose"].startswith("Confirm tomorrow")
+    monkeypatch.setattr(get_settings(), "now", lambda: when - timedelta(hours=1, minutes=50))
+    scheduler.tick()
+    assert any(t.startswith("In 2 hours: site visit") for t in to(fresh, site_phone()))
+    assert any(t.startswith("In 2 hours:") for t in to(fresh, rm_phone()))
+    n = len(fresh.sent)
+    scheduler.tick()
+    assert not any("reminder of your visit" in t or "In 2 hours" in t for _, t in fresh.sent[n:])   # no repeats
+
+
+def test_no_reply_sequence_alternates_message_and_call_then_nurture(fresh):
+    lead = mk_lead()
+    team.assign_rm(lead["id"])
+    pipeline.move(lead["id"], "contacted", "system")
+    fresh.fake.queue([tool_use("send_message", text="Here's a 2BHK that fits — shall I send the plan?", channel="whatsapp")])
+    events.followup_due(lead["id"])                                      # 1: message
+    assert "follow-up 1 of 5" in fresh.fake.briefings[-1]
+    db.q("UPDATE call_tasks SET status = 'done' WHERE lead_id = ?", (lead["id"],))
+    n_calls = len(fresh.fake.briefings)
+    events.followup_due(lead["id"])                                      # 2: call task, no AI message
+    assert len(fresh.fake.briefings) == n_calls
+    task = db.q1("SELECT * FROM call_tasks WHERE lead_id = ? AND status = 'open'", (lead["id"],))
+    assert "reconnect by phone" in task["purpose"] and db.get_lead(lead["id"])["next_followup_at"]
+    db.q("UPDATE call_tasks SET status = 'done' WHERE lead_id = ?", (lead["id"],))
+    events.followup_due(lead["id"])                                      # 3: message with something new
+    assert "something NEW" in fresh.fake.briefings[-1]
+    db.q("UPDATE call_tasks SET status = 'done' WHERE lead_id = ?", (lead["id"],))
+    events.followup_due(lead["id"])                                      # 4: call at a different time
+    assert "different time of day" in db.q1("SELECT purpose FROM call_tasks WHERE lead_id = ? AND status = 'open'",
+                                            (lead["id"],))["purpose"]
+    events.followup_due(lead["id"])                                      # 5: close the loop → nurture
+    assert "reply 1" in fresh.fake.briefings[-1]
+    assert db.get_lead(lead["id"])["stage"] == "nurture"
+    # a reply resets the sequence
+    events.inbound_message(lead["phone"], None, "1", "whatsapp")
+    assert db.get_lead(lead["id"])["followup_attempts"] == 0

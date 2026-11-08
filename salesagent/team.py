@@ -179,9 +179,16 @@ def notify_call_task(task_id: int) -> None:
     channels.notify_staff(rm["phone"], (
         f"📞 CALL C{task_id} — {lead['name'] or ''} {lead['phone']}  (by {due:%I:%M %p})\n"
         f"Goal: {t['purpose']}\n\n{t['brief']}\n\n"
-        f"After the call fill the form: {base_url()}/f/call/{t['form_token']}\n"
+        f"Brief, call button & log: {_rm_portal(rm, lead)}\n"
         f"or reply  CALLED C{task_id} <what happened>   |   NOANSWER C{task_id}"))
     db.update("call_tasks", task_id, {"notified": 1})
+
+
+def _rm_portal(rm: dict, lead: dict) -> str:
+    from . import team_access
+    if not rm.get("phone"):
+        return f"{base_url()}/f/call/"
+    return team_access.link_for("sales", rm["phone"], f"/lead/{lead['id']}")
 
 
 def log_call(task_id: int, outcome: str, data: dict, actor: str = "rm") -> dict | None:

@@ -6,7 +6,7 @@ import logging
 import threading
 from datetime import datetime, time, timedelta
 
-from . import channels, db, events, pricing, team
+from . import channels, db, events, pricing, team, team_access
 from .config import get_settings
 
 log = logging.getLogger("salesagent.scheduler")
@@ -43,56 +43,40 @@ def tick() -> dict:
                 events.dispatch(events.followup_due, row["id"])
                 stats["followups"] += 1
 
-    # 2. visit reminders to the customer and site person
+    # 2. visit reminders: buyer, site coordinator and salesperson; confirmation call the day before
     for v in db.q("SELECT * FROM site_visits WHERE status = 'scheduled'"):
         when = db.parse_dt(v["scheduled_at"])
         sent = set(json.loads(v["reminders_sent"] or "[]"))
         lead = db.get_lead(v["lead_id"])
-        for h in s.messaging.get("visit_reminders_hours_before", [24, 2]):
-            key = f"{h}h"
-            if key in sent or now < when - timedelta(hours=h) or now >= when:
-                continue
-            if quiet and h > 3:
-                continue
-            if not lead["opted_out"] and lead["phone"]:
-                if v["kind"] == "office":
-                    text = (f"Hi {lead['name'] or ''}, looking forward to seeing you at our office on "
-                            f"{when:%a %d %b at %I:%M %p}. Address: {s.booking.get('office_address', '')}.")
-                else:
-                    text = (f"Hi {lead['name'] or ''}, just a reminder of your site visit to {v['project']} on "
-                            f"{when:%a %d %b at %I:%M %p}. {v['site_person']} will meet you there. "
-                            f"Let me know if the timing needs to change.")
-                team.deliver(lead["id"], text, "whatsapp", author="system")
-            if h <= 3:
-                channels.notify_staff(v["site_person_phone"],
-                                      f"Reminder: visit #{v['id']} at {when:%I:%M %p} — {lead['name']} "
-                                      f"{lead['phone']}, {v['project']}")
-            sent.add(key)
-            stats["reminders"] += 1
-        db.update("site_visits", v["id"], {"reminders_sent": json.dumps(sorted(sent))})
-        # site person forgot to report back
+        before = sent.copy()
+        stats["reminders"] += visit_reminders(v, lead, when, now, sent, quiet)
         if v["kind"] == "site" and now > when + timedelta(hours=2) and "feedback_nudge" not in sent:
+            link = team_access.link_for("site", v["site_person_phone"], f"/visit/{v['id']}")
             channels.notify_staff(v["site_person_phone"],
-                                  f"How did visit #{v['id']} with {lead['name']} go? Please fill the visit report: "
-                                  f"{team.base_url()}/f/visit/{v['form_token']}\n(or reply VISITED {v['id']} "
-                                  f"<hot/warm/cold> <notes>  /  NOSHOW {v['id']})")
+                                  f"How did the visit with {lead['name']} go? Please fill the 2-minute report: {link}\n"
+                                  f"(or reply VISITED {v['id']} <hot/warm/cold> <notes>  /  NOSHOW {v['id']})")
+            rm = team.rm_for(lead)
+            if rm.get("phone"):
+                channels.notify_staff(rm["phone"], f"FYI: waiting for the visit report on {lead['name']} "
+                                                   f"({v['project']}). A quick nudge to {v['site_person']} helps.")
             sent.add("feedback_nudge")
+            stats["nudges"] += 1
+        if sent != before:
             db.update("site_visits", v["id"], {"reminders_sent": json.dumps(sorted(sent))})
-            stats["nudges"] += 1
 
-    # 3. call tasks: alert the salesperson when due, remind once if overdue
+    # 3. call discipline: heads-up before, positive nudges after, then tell management
     for t in db.q("SELECT * FROM call_tasks WHERE status = 'open'"):
+        if quiet:
+            break
         due = db.parse_dt(t["due_at"])
-        if t["notified"] == 0 and now >= due - timedelta(minutes=30) and not quiet:
-            team.notify_call_task(t["id"])
-            stats["reminders"] += 1
-        elif t["notified"] == 1 and now > due + timedelta(hours=2) and not quiet:
-            lead = db.get_lead(t["lead_id"])
-            channels.notify_staff(team.rm_for(lead)["phone"],
-                                  f"⏰ Overdue call C{t['id']}: {lead['name']} {lead['phone']} — {t['purpose']}\n"
-                                  f"Reply CALLED C{t['id']} <notes> or NOANSWER C{t['id']}")
-            db.update("call_tasks", t["id"], {"notified": 2})
-            stats["nudges"] += 1
+        level = int(t["notified"] or 0)
+        for lvl, at in ((0, due - timedelta(minutes=15)), (1, due + timedelta(minutes=20)),
+                        (2, due + timedelta(minutes=60)), (3, due + timedelta(hours=3))):
+            if level == lvl and now >= at:
+                call_nudge(t, lvl)
+                db.update("call_tasks", t["id"], {"notified": lvl + 1})
+                stats["reminders" if lvl == 0 else "nudges"] += 1
+                break
 
     # 4. approvals waiting too long
     for o in db.q("SELECT id, created_at FROM offers WHERE status = 'pending_approval'"):
@@ -131,6 +115,97 @@ def tick() -> dict:
         channels.notify_staff(s.owner["phone"], digest())
         db.audit(None, "system", "digest", "")
     return stats
+
+
+NUDGES = [
+    "{rm}, a quick win is waiting: {name} is {temp}. A 3-minute call now keeps the momentum. {why}",
+    "{rm}, {name} hasn't heard from us by phone yet. Buyers who get a call within the hour are far more likely to "
+    "visit — you've got this! {why}",
+]
+
+
+def _call_context(t: dict, lead: dict) -> str:
+    last_in = db.q1("SELECT content FROM interactions WHERE lead_id = ? AND direction = 'in' ORDER BY id DESC LIMIT 1",
+                    (lead["id"],))
+    bits = [f"Goal: {t['purpose']}."]
+    if last_in:
+        bits.append(f"Their last message: \"{last_in['content'][:120]}\"")
+    return " ".join(bits)
+
+
+def call_nudge(t: dict, level: int) -> None:
+    """level 0: heads-up before the call; 1-2: positive nudges after it's due; 3: management is told."""
+    lead = db.get_lead(t["lead_id"])
+    if not lead or lead["stage"] in ("booked", "lost"):
+        return
+    rm = team.rm_for(lead)
+    link = team_access.link_for("sales", rm.get("phone", ""), f"/lead/{lead['id']}") if rm.get("phone") else ""
+    temp = {"hot": "hot 🔥", "warm": "warm"}.get(lead.get("temperature") or "", "interested")
+    if level == 0:
+        team.notify_call_task(t["id"])
+        return
+    if level in (1, 2):
+        text = NUDGES[level - 1].format(rm=rm.get("name", ""), name=lead["name"] or lead["phone"], temp=temp,
+                                        why=_call_context(t, lead))
+        channels.notify_staff(rm.get("phone", ""), f"📞 {text}\nCall {lead['phone']} · brief & log: {link}")
+        return
+    s = get_settings()
+    channels.notify_staff(s.owner["phone"], f"⏰ Call not done for 3+ hours: {rm.get('name', '')} → {lead['name']} "
+                                            f"({lead['stage']}, {lead.get('temperature') or 'new'}). {t['purpose']}. "
+                                            f"A word with {rm.get('name', 'the salesperson')} may help.")
+    channels.notify_staff(rm.get("phone", ""), f"{rm.get('name', '')}, {lead['name']} is still waiting for your call. "
+                                               f"Management has been informed — please call when you can, or log "
+                                               f"why it can't happen: {link}")
+    db.audit(lead["id"], "system", "call_overdue_escalated", {"task_id": t["id"]})
+
+
+def visit_reminders(v: dict, lead: dict, when, now, sent: set, quiet: bool) -> int:
+    """Reminders to the buyer, the site coordinator and the salesperson; a confirmation call task the day before."""
+    s = get_settings()
+    n = 0
+    rm = team.rm_for(lead)
+    t = f"{when:%a %d %b, %I:%M %p}".replace(" 0", " ")
+    site = v["kind"] == "site"
+    host_link = team_access.link_for("site", v["site_person_phone"], f"/visit/{v['id']}") if site else ""
+    rm_link = team_access.link_for("sales", rm.get("phone", ""), f"/lead/{lead['id']}") if rm.get("phone") else ""
+    if site and "confirm_task" not in sent and now >= when - timedelta(hours=26) and now < when - timedelta(hours=3):
+        if not db.q1("SELECT id FROM call_tasks WHERE lead_id = ? AND status = 'open'", (lead["id"],)):
+            team.create_call_task(lead["id"], f"Confirm tomorrow's site visit ({t})", 60,
+                                  f"Visit to {v['project']} on {t} with {v['site_person']}.\nConfirm the time, who is "
+                                  f"coming (bring the decision maker), and share the location. Ask if they'd like "
+                                  f"anything ready (floor plans, cost sheet, loan info).")
+        sent.add("confirm_task")
+        n += 1
+    for h in s.messaging.get("visit_reminders_hours_before", [24, 2]):
+        if now < when - timedelta(hours=h) or now >= when or (quiet and h > 3):
+            continue
+        if f"{h}h" not in sent:
+            if not lead["opted_out"] and lead["phone"]:
+                if site:
+                    text = (f"Hi {lead['name'] or ''}, a reminder of your visit to {v['project']} on {t}. "
+                            f"{v['site_person']} will meet you there. Let me know if the timing needs to change.")
+                else:
+                    text = (f"Hi {lead['name'] or ''}, looking forward to seeing you at the office on {t}. "
+                            f"Address: {v['feedback'] or s.booking.get('office_address', '')}.")
+                team.deliver(lead["id"], text, "whatsapp", author="system")
+            sent.add(f"{h}h")
+            n += 1
+        if site and f"{h}h_host" not in sent:
+            channels.notify_staff(v["site_person_phone"], (
+                f"{'Tomorrow' if h >= 12 else 'In 2 hours'}: site visit {t}\n{lead['name']} ({lead['phone']}) · "
+                f"{v['project']}\nLooking for {lead.get('unit_type') or '?'}, budget "
+                f"{pricing.fmt_money(lead.get('budget_max'))}\nSalesperson: {rm.get('name', '')} {rm.get('phone', '')}\n"
+                f"Details & steps: {host_link}"))
+            sent.add(f"{h}h_host")
+            n += 1
+        if rm.get("phone") and f"{h}h_rm" not in sent:
+            extra = "Please do the confirmation call today." if h >= 12 else "A quick 'see you soon' call helps."
+            channels.notify_staff(rm["phone"], f"{'Tomorrow' if h >= 12 else 'In 2 hours'}: {lead['name']} visits "
+                                               f"{v['project'] if site else 'the office'} at {t} with "
+                                               f"{v['site_person']}. {extra} {rm_link}")
+            sent.add(f"{h}h_rm")
+            n += 1
+    return n
 
 
 def digest() -> str:

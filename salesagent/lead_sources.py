@@ -260,7 +260,7 @@ def parse_portal_email(sender: str, subject: str, body: str) -> dict | None:
 
 def process_email(sender: str, subject: str, body: str, message_id: str = "") -> int | None:
     key = message_id or hashlib.sha256(f"{sender}|{subject}|{body[:2000]}".encode()).hexdigest()
-    if _seen("email", key, mark=False) or _seen("email_ignored", key, mark=False):
+    if any(_seen(src, key, mark=False) for src in ("email_lead", "email", "email_ignored")):
         return None
     data = parse_portal_email(sender, subject, body)
     if not data:
@@ -275,7 +275,7 @@ def process_email(sender: str, subject: str, body: str, message_id: str = "") ->
         _mark("email_ignored", key)
         db.audit(None, "system", "email_ignored", json.dumps({"from": sender[:80], "subject": subject[:120]}))
         return None
-    _mark("email", key)
+    _mark("email_lead", key)
     lead, _ = _deliver_lead(data, f"Enquired about property on {data['campaign']}",
                             f"{data['campaign']} enquiry email", note=f"Enquiry from {data['campaign']}: {subject[:120]}")
     return lead["id"]
@@ -297,7 +297,8 @@ def poll_mailbox(limit: int = 30, recheck_ignored: bool = False) -> dict:
     host = env("LEADS_IMAP_HOST", "imap.gmail.com")
     created = 0
     if recheck_ignored:   # manual "Check mailbox now": give recently ignored emails another look
-        db.q("DELETE FROM processed_events WHERE source = 'email_ignored'")
+        # ('email' = older markers from before leads and ignored mail were kept apart; leads are 'email_lead')
+        db.q("DELETE FROM processed_events WHERE source IN ('email_ignored', 'email')")
     with imaplib.IMAP4_SSL(host, timeout=30) as M:
         M.login(user, pw)
         M.select("INBOX")

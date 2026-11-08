@@ -1577,3 +1577,12 @@ def test_unreadable_portal_email_is_retried_and_shown(fresh, monkeypatch):
         html = c.get("/sources", auth=("owner", "pw")).text
     assert "find a phone/email — will retry" in html and "Contact details are available" in html
     assert "not a portal email" in html
+
+
+def test_manual_check_rechecks_ignored_and_finds_portal_deep_in_body(fresh):
+    from salesagent import lead_sources
+    body = "Hi, see below\n\n" + ("filler line\n" * 40) + "From: 99acres\nName: Ravi\nMobile: 9840011122"
+    assert lead_sources.process_email("me@gmail.com", "enquiry", body, "<d1>")          # portal name found deep inside
+    assert db.find_lead_by_phone("9840011122")["campaign"] == "99acres"
+    lead_sources.process_email("me@gmail.com", "hello", "no portal here 9840000000", "<d2>")
+    assert db.q1("SELECT 1 x FROM processed_events WHERE source = 'email_ignored' AND ext_id = '<d2>'")

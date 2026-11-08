@@ -875,7 +875,7 @@ def _recent_emails_html() -> str:
 def sources_mail(_: str = Depends(owner_auth)):
     from . import lead_sources
     try:
-        res = lead_sources.poll_mailbox()
+        res = lead_sources.poll_mailbox(recheck_ignored=True)
         msg = ("Mailbox not set up yet." if not res.get("configured") else
                f"Mailbox checked: {res['leads']} new lead(s).")
     except Exception as e:  # noqa: BLE001 - show the reason to the owner

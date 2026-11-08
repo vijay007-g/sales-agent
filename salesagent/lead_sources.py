@@ -212,7 +212,7 @@ EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 
 
 def portal_of(sender: str, subject: str, body: str) -> str | None:
-    hay = f"{sender} {subject} {body[:500]}".lower()
+    hay = f"{sender} {subject} {body}".lower()
     return next((name for name, keys in PORTALS.items() if any(k in hay for k in keys)), None)
 
 
@@ -260,7 +260,7 @@ def parse_portal_email(sender: str, subject: str, body: str) -> dict | None:
 
 def process_email(sender: str, subject: str, body: str, message_id: str = "") -> int | None:
     key = message_id or hashlib.sha256(f"{sender}|{subject}|{body[:2000]}".encode()).hexdigest()
-    if _seen("email", key, mark=False):
+    if _seen("email", key, mark=False) or _seen("email_ignored", key, mark=False):
         return None
     data = parse_portal_email(sender, subject, body)
     if not data:
@@ -272,7 +272,7 @@ def process_email(sender: str, subject: str, body: str, message_id: str = "") ->
                     {"key": key[:40], "from": sender[:80], "subject": subject[:120],
                      "snippet": re.sub(r"\s+", " ", text)[:600]}, ensure_ascii=False))
             return None
-        _mark("email", key)
+        _mark("email_ignored", key)
         db.audit(None, "system", "email_ignored", json.dumps({"from": sender[:80], "subject": subject[:120]}))
         return None
     _mark("email", key)
@@ -289,13 +289,15 @@ def _email_text(msg) -> str:
     return msg.get_content()
 
 
-def poll_mailbox(limit: int = 30) -> dict:
+def poll_mailbox(limit: int = 30, recheck_ignored: bool = False) -> dict:
     user = env("LEADS_IMAP_USER").strip().strip('"').strip("'")
     pw = env("LEADS_IMAP_PASSWORD").replace(" ", "").strip().strip('"').strip("'")   # Google shows app passwords with spaces
     if not user or not pw:
         return {"configured": False}
     host = env("LEADS_IMAP_HOST", "imap.gmail.com")
     created = 0
+    if recheck_ignored:   # manual "Check mailbox now": give recently ignored emails another look
+        db.q("DELETE FROM processed_events WHERE source = 'email_ignored'")
     with imaplib.IMAP4_SSL(host, timeout=30) as M:
         M.login(user, pw)
         M.select("INBOX")

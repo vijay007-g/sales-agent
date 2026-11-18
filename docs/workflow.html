@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Skyline Realty — AI + Human Sales Workflow</title>
+<style>
+@page { size: A4; margin: 14mm 13mm 16mm; }
+* { box-sizing: border-box; }
+body { font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif; color: #1d2330; font-size: 9.2pt; line-height: 1.3; margin: 0; }
+h1 { font-size: 18pt; margin: 0 0 1mm; } h2 { font-size: 12.5pt; margin: 2mm 0 2mm; border-bottom: 2px solid #1d2330; padding-bottom: 1.5mm; }
+h3 { font-size: 10pt; margin: 1.5mm 0 1mm; } p { margin: 1.5mm 0; } small, .muted { color: #5b6476; }
+.page { page-break-after: always; } .page:last-child { page-break-after: auto; }
+.cover { background: #1d2330; color: #fff; padding: 4.5mm 6mm; border-radius: 3mm; margin-bottom: 3mm; }
+.cover p { color: #cfd6e4; margin: 0; font-size: 10pt; }
+.legend { display: flex; gap: 3mm; flex-wrap: wrap; margin: 1mm 0 2.5mm; font-size: 8.5pt; }
+.chip { display: inline-block; padding: 0.6mm 2.4mm; border-radius: 3mm; font-weight: 600; font-size: 8.5pt; }
+.ai { background: #dcf3e4; color: #145c33; } .sp { background: #e1ecff; color: #1d4aa8; } .st { background: #fff0d6; color: #8a5300; }
+.ow { background: #ffe1dc; color: #9b2215; } .by { background: #eceff4; color: #3b4252; }
+.flow { display: grid; grid-template-columns: 9mm 1fr; gap: 0; }
+.step { display: contents; }
+.num { width: 7mm; height: 7mm; border-radius: 50%; background: #1d2330; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; font-size: 9pt; margin-top: 1mm; }
+.box { border: 1px solid #d5dae3; border-left: 4px solid #2b62e3; border-radius: 2mm; padding: 1.3mm 2.5mm; margin: 0 0 1.5mm 1mm; break-inside: avoid; }
+.box b.t { font-size: 9.8pt; } .box ul { margin: 0.5mm 0 0; padding-left: 4.5mm; } .box li { margin: 0.2mm 0; }
+.box.key { border-left-color: #c9372c; background: #fff8f7; }
+table { width: 100%; border-collapse: collapse; font-size: 8.8pt; margin: 1mm 0 2mm; break-inside: avoid; }
+th, td { border: 1px solid #d5dae3; padding: 1.1mm 1.8mm; text-align: left; vertical-align: top; }
+th { background: #f0f2f6; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 3mm; }
+.card { border: 1px solid #d5dae3; border-radius: 2mm; padding: 2mm 2.5mm; break-inside: avoid; margin-bottom: 2mm; } .card ul { margin: 0.5mm 0; padding-left: 4.5mm; }
+code { font-family: Consolas, "Courier New", monospace; background: #f0f2f6; padding: 0.2mm 1mm; border-radius: 1mm; font-size: 8.6pt; }
+.check li { list-style: none; margin: 0.6mm 0; } .check li::before { content: "☐ "; font-size: 11pt; } .check { columns: 2; column-gap: 6mm; }
+.check { padding-left: 1mm; }
+.foot { position: fixed; bottom: -9mm; left: 0; right: 0; text-align: center; font-size: 8pt; color: #8a92a3; }
+.seq td:first-child { width: 14mm; text-align: center; font-weight: 700; }
+</style></head><body>
+
+<!-- ================= PAGE 1 ================= -->
+<div class="page">
+<div class="cover"><h1>Skyline Realty</h1><p>AI + Human Sales System — how a buyer goes from enquiry to booking, and who does what</p></div>
+
+<div class="legend">Who does it:
+<span class="chip ai">AI assistant</span><span class="chip sp">Salesperson</span><span class="chip st">Site team</span>
+<span class="chip ow">You (management)</span><span class="chip by">Buyer / builder</span></div>
+
+<div class="flow">
+<div class="step"><div class="num">1</div><div class="box"><b class="t">Enquiry arrives</b> <span class="chip by">Buyer</span>
+<ul><li>From a landing page, 99acres / MagicBricks / Housing email, Meta lead ad, Click-to-WhatsApp ad, walk-in or referral.</li>
+<li>The system creates the lead, removes duplicates, scores it 0–100 and assigns the salesperson for that city.</li></ul></div></div>
+
+<div class="step"><div class="num">2</div><div class="box"><b class="t">First contact — within 1 minute</b> <span class="chip ai">AI</span>
+<ul><li>WhatsApp: "Hi, I'm Skyline Realty's assistant, working with Anitha…" — always says it is an AI assistant.</li>
+<li>Asks one qualifying question and creates an <b>intro call task</b> due in 10 minutes, with a brief.</li></ul></div></div>
+
+<div class="step"><div class="num">3</div><div class="box"><b class="t">Intro call</b> <span class="chip sp">Salesperson</span>
+<ul><li>Calls using the brief in the portal; logs the call in one tap (or WhatsApp: <code>CALLED C3 notes</code>).</li>
+<li>The AI continues in writing: "As we discussed…", sends matching homes, floor plans, cost sheet, EMI.</li>
+<li>Reminders if the call is late: +20 min, +60 min; you are told after 3 hours.</li></ul></div></div>
+
+<div class="step"><div class="num">4</div><div class="box"><b class="t">Understand needs &amp; match homes</b> <span class="chip ai">AI</span> <span class="chip sp">Salesperson</span>
+<ul><li>Budget, size, area, ready / under construction, loan, who decides.</li>
+<li>AI searches <b>all</b> inventory (own + partner builders, Chennai + Bangalore) and recommends the best 2–3 real units.</li></ul></div></div>
+
+<div class="step"><div class="num">5</div><div class="box"><b class="t">Book the site visit</b> <span class="chip ai">AI</span>
+<ul><li>Offers two time slots; books the site host; partner projects: buyer is <b>registered with the builder in writing</b> first (commission protection).</li>
+<li>Reminders to buyer, site host and salesperson: day before + 2 hours before. Salesperson gets a <b>confirmation call</b> task.</li></ul></div></div>
+
+<div class="step"><div class="num">6</div><div class="box"><b class="t">Site visit</b> <span class="chip st">Site team</span>
+<ul><li>Site app: Confirm → <b>Customer arrived</b> (salesperson told instantly) → show the right homes → <b>fill the 2-minute report</b>.</li></ul></div></div>
+
+<div class="step"><div class="num">7</div><div class="box"><b class="t">Closing plan</b> <span class="chip ai">AI</span> <span class="chip sp">Salesperson</span>
+<ul><li>AI turns the visit report into a <b>conversion strategy</b>: motivators, objections + answers, best unit, price plan, next steps.</li>
+<li>Same-day post-visit call by the salesperson, following the strategy.</li></ul></div></div>
+
+<div class="step"><div class="num">8</div><div class="box key"><b class="t">Price &amp; negotiation — your approval</b> <span class="chip ow">You</span>
+<ul><li>The AI <b>never</b> gives a discount itself. It sends you the request with the buyer's ask, its reasons, your floor margin and commission.</li>
+<li>You reply <code>APPROVE 7</code> · <code>COUNTER 7 95L</code> · <code>REJECT 7</code>. Approved price is told on a call first, then in writing. Unit area is never negotiable.</li></ul></div></div>
+
+<div class="step"><div class="num">9</div><div class="box key"><b class="t">Booking &amp; advance</b> <span class="chip ow">You</span> <span class="chip by">Buyer</span>
+<ul><li>Buyer agrees → you <code>CONFIRM B3</code> → AI sends the <b>official</b> bank details (yours, or the partner builder's).</li>
+<li>When money reaches the bank, you reply <code>PAID B3 2L UTR123</code> → flat booked, unit off sale, commission recorded.</li></ul></div></div>
+</div>
+<p class="muted"><b>If the buyer goes quiet:</b> useful WhatsApp → reconnect call → WhatsApp with something new → call at a different time → "reply 1 to continue, 2 to pause" → nurture every 2 weeks. Any reply restarts the conversation.</p>
+</div>
+
+<!-- ================= PAGE 2 ================= -->
+<div class="page">
+<h2>Who does what — and how long it takes</h2>
+<table>
+<tr><th style="width:22%">Person</th><th>Their job</th><th style="width:28%">Where they work</th></tr>
+<tr><td><span class="chip ai">AI assistant</span></td><td>Replies in 1 minute, 24×7 · qualifies · matches homes · sends brochures, cost sheets, EMI · books visits · registers buyers with builders · writes call briefs and closing strategies · follows up · prepares price requests · tracks bookings and commissions · learns weekly from wins and losses</td><td>Automatic — nobody operates it</td></tr>
+<tr><td><span class="chip sp">Salesperson</span></td><td>Makes every call using the AI brief · logs each call in one tap · approves AI messages (review mode) · post-visit calls · walks buyers through booking</td><td>Sales portal (phone app link) + WhatsApp</td></tr>
+<tr><td><span class="chip st">Site team</span></td><td>Confirms visits · receives buyers · shows the right homes · fills the 2-minute visit report</td><td>Site app (phone link)</td></tr>
+<tr><td><span class="chip ow">You</span></td><td>Approve / counter prices · confirm bookings · mark advances received after checking the bank · approve ad budgets · keep inventory up to date · read the morning summary</td><td>Dashboard + WhatsApp · 10–20 min/day</td></tr>
+</table>
+
+<div class="cols">
+<div class="card"><h3>Your daily routine (10–20 min)</h3><ul>
+<li>9 AM: read the WhatsApp morning summary</li><li>Approve / counter price requests (WhatsApp or Overview)</li>
+<li>Confirm bookings; mark advances received <b>after checking the bank</b></li><li>Glance at the Overview checklist and "Leads needing you"</li>
+<li><b>Weekly:</b> enter ad spend (Reports), read Learning, update inventory</li></ul></div>
+<div class="card"><h3>Salesperson's day</h3><ul>
+<li>Open the sales portal: <b>Calls to make now</b> first (red = overdue)</li><li>Each buyer page shows the current step and the AI brief</li>
+<li>Call → log it (outcome + notes) → the AI follows up in writing</li><li>Approve or edit AI drafts</li><li>Do confirmation calls the day before visits</li></ul></div>
+<div class="card"><h3>Site team's visit</h3><ul>
+<li>Day before: reminder with buyer details + link</li><li>Tap <b>Called &amp; confirmed</b></li><li>On arrival tap <b>They have arrived</b></li>
+<li>Show the homes listed in the app</li><li>Right after: <b>fill the visit report</b> (or "Customer didn't come")</li></ul></div>
+<div class="card"><h3>Partner builder</h3><ul>
+<li>Receives a written client registration before each visit (R-number, with our RERA number)</li><li>Replies <code>ACK R12</code> (or <code>DISPUTE R12 reason</code>)</li>
+<li>Hosts the visit at their site; pays commission by their terms — tracked on the Commissions page</li></ul></div>
+</div>
+
+<h3>Safety rules built into the system</h3>
+<table>
+<tr><td>Floor prices are never shown to the AI or buyers</td><td>Every discount or extra needs your approval first</td></tr>
+<tr><td>Unit area is never negotiable</td><td>Bank details are fixed text from Settings — the AI can't type them</td></tr>
+<tr><td>A flat is "booked" only when you confirm the money arrived</td><td>"STOP" from a buyer stops all messages instantly</td></tr>
+<tr><td>Price, booking, payment and complaints always use the best AI model</td><td>Complaints / legal questions pause the AI and alert you</td></tr>
+</table>
+</div>
+
+<!-- ================= PAGE 3 ================= -->
+<div class="page">
+<h2>WhatsApp commands</h2>
+<table>
+<tr><th style="width:18%">Who</th><th style="width:38%">Type this</th><th>What happens</th></tr>
+<tr><td rowspan="8"><span class="chip ow">You</span></td><td><code>APPROVE 7</code></td><td>Approves price request #7; AI tells the buyer (call first)</td></tr>
+<tr><td><code>COUNTER 7 95L note</code></td><td>Sets your best price (95L, 1.2cr or 9500000 all work)</td></tr>
+<tr><td><code>REJECT 7 note</code></td><td>AI holds the price politely and offers value</td></tr>
+<tr><td><code>CONFIRM B3</code></td><td>Confirms booking B3; AI sends official payment details</td></tr>
+<tr><td><code>HOLD B3 note</code></td><td>Puts the booking on hold</td></tr>
+<tr><td><code>PAID B3 2L UTR123</code></td><td>Advance received → flat booked, unit off sale, commission recorded</td></tr>
+<tr><td><code>PAUSE 15</code> / <code>RESUME 15 note</code></td><td>You take over buyer #15 / hand back to the AI</td></tr>
+<tr><td><code>STATUS</code> · <code>LEAD 15</code> · <code>TODAY</code></td><td>Pipeline summary · one buyer · today's visits</td></tr>
+<tr><td rowspan="3"><span class="chip sp">Salesperson</span></td><td><code>CALLED C12 what happened</code></td><td>Logs the call; AI follows up in writing</td></tr>
+<tr><td><code>NOANSWER C12</code></td><td>AI sends "tried calling", books another call</td></tr>
+<tr><td><code>SEND D4</code> · <code>EDIT D4 new text</code> · <code>DROP D4</code></td><td>Approve, rewrite or drop an AI draft</td></tr>
+<tr><td rowspan="2"><span class="chip st">Site team</span></td><td><code>VISITED 9 hot notes</code></td><td>Visit done (use the full report link when possible)</td></tr>
+<tr><td><code>NOSHOW 9</code> · <code>TODAY</code></td><td>Buyer didn't come · today's visits</td></tr>
+<tr><td><span class="chip by">Builder</span></td><td><code>ACK R12</code> · <code>DISPUTE R12 reason</code></td><td>Confirms / disputes a client registration</td></tr>
+</table>
+
+<h2>Dashboard map</h2>
+<table>
+<tr><td><b>Overview</b></td><td>Go-live checklist, pipeline, price approvals, bookings, payments, drafts, leads needing you</td></tr>
+<tr><td><b>Leads · Calls · Visits</b></td><td>All buyers (filter by stage/city) · every call with its brief · every site visit</td></tr>
+<tr><td><b>Sales ▾</b></td><td>Inventory (builders, projects, units, brochures, charges) · Commissions · Builder registrations</td></tr>
+<tr><td><b>Marketing ▾</b></td><td>Lead sources (portal email, Meta, WhatsApp ads, spend) · Campaigns (AI-written ads) · Reports (cost per booking) · Learning (weekly playbook)</td></tr>
+<tr><td><b>Admin ▾</b></td><td>Team (portal links) · Settings · Test (practise safely) · Outbox · Download backup</td></tr>
+</table>
+
+<h2>Go-live checklist</h2>
+<ul class="check">
+<li>Settings: your WhatsApp number and email</li><li>Settings: real names and numbers for salesperson(s) and site team, with their cities</li>
+<li>Settings: firm's bank account, IFSC, office address, verification phone</li><li>Settings: registered firm name + RERA number for Chennai and Bangalore</li>
+<li>Inventory: your 8 projects with units, prices, floor prices, charges, brochures</li><li>Inventory: partner builders with commission, contact and bank details</li>
+<li>Inventory: delete "Sunrise Meadows" and remove sample inventory</li><li>Claude Console: auto-reload credits turned on</li>
+<li>Team: portal links sent; salesperson and site team practised on the Test page</li><li>Portals: enquiry emails forwarded to the leads Gmail</li>
+<li>WhatsApp Business number verified and connected → switch to live</li><li>Meta lead ads + spend connected (when ads start)</li>
+</ul>
+</div>
+</body></html>

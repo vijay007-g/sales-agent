@@ -271,7 +271,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])}</b>
-<a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a>
+<a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/growth">10-yr plan</a>
 <details class="nav"><summary>Sales ▾</summary><div><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
 <a href="/registrations">Builder registrations</a></div></details>
 <details class="nav"><summary>Marketing ▾</summary><div><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
@@ -651,6 +651,78 @@ def new_campaign(project: str = Form(...), channel: str = Form(...), budget: str
 def approve_campaign(cid: int, _: str = Depends(owner_auth)):
     db.update("campaigns", cid, {"status": "approved"})
     return RedirectResponse("/campaigns", status_code=303)
+
+
+@app.get("/growth", response_class=HTMLResponse)
+def growth_page(_: str = Depends(owner_auth)):
+    from . import growth
+    m = pricing.fmt_money
+    p = growth.progress()
+    t = p["target"]
+    pct = lambda a, z: min(100, round(100 * a / z)) if z else 0  # noqa: E731
+    if p["year_index"] < 1:
+        head = (f"<p>The plan starts on 1 Jan {growth.start_year()}. Use the weeks before it to finish Settings, load "
+                f"real inventory and run 20–30 real conversations. Year-1 target: <b>{t['bookings']} bookings</b>, "
+                f"₹{t['sales_cr']:,.0f} Cr of sales.</p>")
+    else:
+        bar = lambda a, z: (f'<div style="background:#eef1f5;border-radius:6px;height:12px"><div style="width:'  # noqa: E731
+                            f'{pct(a, z)}%;background:#2f7d4f;height:12px;border-radius:6px"></div></div>')
+        head = (f"<p><b>Plan year {p['year_index']} ({p['calendar']})</b> · {p['elapsed_pct']}% of the year gone</p>"
+                f"<p>Bookings: <b>{p['bookings']}</b> of {t['bookings']} — on pace for {p['pace_bookings']}</p>"
+                f"{bar(p['bookings'], t['bookings'])}"
+                f"<p>Sales value: <b>{m(p['sales'])}</b> of ₹{t['sales_cr']:,.0f} Cr — on pace for {m(p['pace_sales'])}</p>"
+                f"{bar(p['sales'], t['sales_cr'] * growth.CR)}"
+                f"<p><small>Commission earned this year: {m(p['commission'])} · own-project sales: "
+                f"{m(p['own_sales'])}</small></p>")
+    head += f"<p><b>This year's milestone:</b> {escape(t['milestone'])}</p>"
+
+    gates = "".join(f"<tr><td>{'✅' if g['ok'] else '⬜'}</td><td>{escape(g['text'])}</td><td>{escape(g['now'])}</td></tr>"
+                    for g in growth.gate1())
+    ue, fn = growth.unit_economics(), growth.funnel()
+    na = lambda v, f=m: f(v) if v is not None else "—"  # noqa: E731
+    months = growth.monthly()
+    mrows = "".join(f"<tr><td>{x['month']}</td><td>{x['leads']}</td><td>{x['bookings']}</td><td>{m(x['sales']) if x['sales'] else '—'}</td></tr>"
+                    for x in months)
+    drows = "".join(f"<tr><td>{escape(d['city'] or '?')}</td><td>{escape(d['area'] or 'any')}</td><td>{escape(d['budget'])}</td>"
+                    f"<td>{escape(d['unit_type'] or 'any')}</td><td>{d['leads']}</td><td>{d['booked']}</td>"
+                    f"<td>{d['supply']}</td><td><b>{d['gap'] if d['gap'] > 0 else '—'}</b></td></tr>"
+                    for d in growth.demand())
+    conc = "".join(f"<tr><td>{escape(c['builder'])}</td><td>{m(c['amount'])}</td><td>{c['share']}%</td></tr>"
+                   for c in growth.concentration())
+    ladder = "".join(f"<tr{' style=\"background:#fff7d6\"' if x['year'] == max(p['year_index'], 1) else ''}><td>{x['year']}</td>"
+                     f"<td>{x['calendar']}</td><td>{x['bookings']:,}</td><td>₹{x['sales_cr']:,.0f} Cr</td>"
+                     f"<td>{'₹%s Cr' % format(int(x['own_cr']), ',') if x['own_cr'] else '—'}</td><td>{escape(x['milestone'])}</td></tr>"
+                     for x in growth.plan())
+    return page("10-year plan", f"""<h2>10-year plan — the road to a ₹8,800 Cr ($1B) company</h2>
+<div class="card"><h3>Where we are</h3>{head}</div>
+<div class="card"><h3>Gate 1 — is the engine working?</h3>
+<p><small>Spend on growth (more ads, more salespeople, a new city) only when every line is ticked. Until then, fix the
+weakest line first.</small></p><table><tr><th></th><th>Test</th><th>Now</th></tr>{gates}</table></div>
+<div class="card"><h3>Unit economics (last 12 months)</h3><table>
+<tr><td>Bookings</td><td>{ue['bookings']}</td></tr><tr><td>Average deal</td><td>{na(ue['avg_deal'])}</td></tr>
+<tr><td>Ads + AI cost</td><td>{m(ue['cost']) if ue['cost'] else '—'} <small>(ads {m(ue['ad_spend']) if ue['ad_spend'] else '₹0'}, AI {m(ue['ai_cost'])})</small></td></tr>
+<tr><td>Cost per booking</td><td>{na(ue['cost_per_booking'])}</td></tr>
+<tr><td>Earnings per booking</td><td>{na(ue['earnings_per_booking'])}</td></tr>
+<tr><td>Cost as share of earnings</td><td>{na(ue['cost_share'], lambda v: f"{round(v * 100)}%")}</td></tr></table>
+<p><small>Earnings = builder commission (+ own-project margin if <code>growth.own_margin_pct</code> is set).</small></p></div>
+<div class="card"><h3>Conversion (last 6 months)</h3><table>
+<tr><td>Leads → site visit</td><td>{na(fn['lead_to_visit'], lambda v: f"{v}%")}</td></tr>
+<tr><td>Site visit → booking</td><td>{na(fn['visit_to_booking'], lambda v: f"{v}%")}</td></tr>
+<tr><td>Lead → booking</td><td>{na(fn['lead_to_booking'], lambda v: f"{v}%")}</td></tr>
+<tr><td>Leads from referrals</td><td>{na(fn['referral_share'], lambda v: f"{v}%")}</td></tr></table></div>
+<div class="card"><h3>Demand intelligence — what buyers want vs what we can offer</h3>
+<p><small>Each row is a group of buyers (last 6 months). <b>Gap</b> = buyers minus matching flats we can offer today.
+Big gaps are what to pitch builders for (exclusive mandates) — and, from year 3, where to look for land for our
+own projects.</small></p>
+<table><tr><th>City</th><th>Area</th><th>Budget</th><th>Home</th><th>Buyers</th><th>Booked</th><th>Our supply</th><th>Gap</th></tr>
+{drows or '<tr><td colspan=8>No leads yet.</td></tr>'}</table></div>
+<div class="card"><h3>Builder concentration</h3>
+<table><tr><th>Builder</th><th>Commission</th><th>Share</th></tr>{conc or '<tr><td colspan=3>No commission yet.</td></tr>'}</table></div>
+<div class="card"><h3>Last 12 months</h3><table><tr><th>Month</th><th>Leads</th><th>Bookings</th><th>Sales</th></tr>{mrows}</table></div>
+<div class="card"><h3>The 10-year ladder</h3>
+<table><tr><th>Year</th><th></th><th>Bookings</th><th>Sales value</th><th>Own projects</th><th>Milestone</th></tr>{ladder}</table>
+<p><small>Full reasoning: <code>docs/Skyline-10-Year-Plan.pdf</code> in the GitHub repo. Targets can be changed under
+<code>growth:</code> in Admin → Settings → Advanced.</small></p></div>""")
 
 
 @app.get("/reports", response_class=HTMLResponse)

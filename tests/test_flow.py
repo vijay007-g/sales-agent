@@ -313,6 +313,12 @@ def test_full_close_offer_booking_payment(fresh):
     assert db.get_lead(lead["id"])["stage"] == "booked"
     b = db.q1("SELECT * FROM bookings WHERE id = ?", (booking["id"],))
     assert b["status"] == "paid" and b["amount_paid"] == 200000 and b["payment_ref"] == "UTR1234"
+    # the 10-year plan counts the paid booking at its approved deal value
+    from salesagent import growth
+    ds = growth.deals()
+    assert len(ds) == 1 and ds[0]["value"] > 0 and ds[0]["project"] == "Sunrise Meadows"
+    assert growth.unit_economics()["bookings"] == 1
+    assert growth.funnel()["booked"] == 1
 
 
 # ------------------------------------------------------------------ safety
@@ -453,7 +459,7 @@ def test_dashboard_pages(monkeypatch):
     with TestClient(app) as c:
         assert c.get("/").status_code == 401
         for path in ("/", "/leads", f"/leads/{lead['id']}", "/calls", "/visits", "/campaigns", "/insights",
-                     "/reports"):
+                     "/reports", "/growth"):
             assert c.get(path, auth=("owner", "pw")).status_code == 200, path
 
 
@@ -1733,3 +1739,18 @@ def test_grouped_menu_has_all_pages(monkeypatch):
     for path in ("/leads", "/calls", "/visits", "/inventory", "/commissions", "/registrations", "/sources",
                  "/campaigns", "/reports", "/insights", "/team", "/settings", "/backup.zip"):
         assert f'href="{path}"' in html, path
+
+
+def test_growth_plan_and_demand_gap(fresh):
+    from salesagent import growth
+    plan = growth.plan()
+    assert len(plan) == 10 and plan[0]["calendar"] == growth.start_year() and plan[-1]["sales_cr"] >= 15000
+    for i in range(3):
+        mk_lead(phone=f"98765000{i:02d}", city="Chennai", location_pref="Velachery", budget_max=6500000,
+                unit_type="2BHK")
+    rows = growth.demand()
+    top = rows[0]
+    assert top["area"] == "Velachery" and top["leads"] == 3 and top["budget"] == "₹50–80 L" and top["gap"] >= 1
+    assert len(growth.gate1()) == 6 and not growth.gate1()[0]["ok"]
+    assert "plan" in growth.digest_line().lower() or "Plan year" in growth.digest_line()
+    assert growth.band(None)[0] == "budget unknown"

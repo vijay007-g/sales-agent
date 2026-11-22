@@ -130,6 +130,21 @@ Presets: **Best** (top model everywhere — default), **Balanced** (Sonnet 5.5 f
 Whatever is chosen, key moments always use the top model: price / discount / booking / payment talk, complaints,
 post-visit strategy, management decisions and hot buyers. Reports → AI usage shows calls and cost per model.
 
+## 10-year plan (dashboard → 10-yr plan)
+
+The strategy is in `docs/Skyline-10-Year-Plan.pdf`: distribution → exclusive mandates → own development
+through JDAs → licensing the platform, 100% founder-owned. The **10-yr plan** page tracks it from real data:
+- this year's bookings and sales against target, with a pace projection;
+- **Gate 1** tests: is the engine working before money goes into expansion;
+- unit economics: ads + AI cost per booking against earnings per booking;
+- conversion rates and referral share;
+- **demand intelligence**: buyer groups by city × area × budget × home type against the flats we can offer
+  today, with the biggest gaps first;
+- builder concentration.
+
+The morning digest includes one progress line. Targets, `start_year`, `usd_inr` and `own_margin_pct` can be
+overridden under `growth:` in Settings → Advanced.
+
 ## Running it safely
 - **Go-live checklist** on the Overview: flags sample numbers, sample bank details, missing RERA/firm details, sample
   or demo projects, a stopped background clock, AI errors, unconnected sources and team links not yet opened.

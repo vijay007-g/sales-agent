@@ -262,6 +262,13 @@ def digest() -> str:
     disputed = db.q1("SELECT COUNT(*) n FROM registrations WHERE status = 'disputed'")["n"]
     if disputed:
         lines.append(f"⚠️ Disputed client registrations: {disputed}")
+    try:
+        from . import growth
+        g = growth.digest_line()
+        if g:
+            lines.append(g)
+    except Exception:  # noqa: BLE001 - the digest must go out even if the plan line fails
+        log.exception("growth digest line failed")
     lines.append("Top leads:")
     lines += [f"  #{h['id']} {h['name']} — {h['stage']} (score {h['score']})" for h in hot]
     return "\n".join(lines)

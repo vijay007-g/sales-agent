@@ -16,8 +16,8 @@ CR = 10_000_000  # one crore in rupees
 
 # year, bookings, total sales value (₹ Cr), of which own development (₹ Cr), the milestone that year must deliver
 DEFAULT_PLAN = [
-    (1, 120, 100, 0, "Prove the engine: 10 bookings a month in Chennai + Bangalore, cost per booking under control"),
-    (2, 360, 330, 0, "First exclusive mandates; 3 salesperson pods; referrals 15% of bookings"),
+    (1, 90, 80, 0, "Chennai first: 8–10 bookings a month by Q4; Bangalore from Q2 with a hired city lead"),
+    (2, 300, 280, 0, "Both cities running; first exclusive mandates; referrals 15% of bookings"),
     (3, 900, 850, 0, "Demand book of 5,000+ qualified buyers; first joint development (JDA) signed"),
     (4, 1700, 1700, 0, "Third city; first own JDA project launched with pre-sold expressions of interest"),
     (5, 2800, 3000, 300, "Own project 70% sold in 12 months; mandates are most of distribution sales"),
@@ -202,7 +202,7 @@ def gate1() -> list[dict]:
         return {"ok": bool(ok), "text": text, "now": now_text}
 
     return [
-        item(all(m["bookings"] >= 10 for m in ms), "10+ bookings every month for 3 months in a row",
+        item(all(m["bookings"] >= 8 for m in ms), "8+ bookings every month for 3 months in a row",
              ", ".join(f"{m['month']}: {m['bookings']}" for m in ms)),
         item(ue["cost_share"] is not None and ue["cost_share"] <= 0.30,
              "Ads + AI cost per booking is at most 30% of what a booking earns",

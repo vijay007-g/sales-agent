@@ -18,186 +18,169 @@ ol, ul { margin: 1mm 0; padding-left: 5mm; } li { margin: 0.5mm 0; }
 .script { border-left: 3px solid #2b62e3; background:#f5f8ff; padding: 1.5mm 3mm; margin: 1mm 0 2mm; font-size: 8.8pt; break-inside: avoid; }
 .tag { display:inline-block; border-radius:2mm; padding:0 1.5mm; font-size:7.6pt; font-weight:700; margin-right:0.6mm; }
 .tY { background:#e1ecff; color:#1d4aa8; } .tW { background:#ffe1dc; color:#9b2215; } .tS { background:#fff0d6; color:#8a5300; }
-.tA { background:#dcf3e4; color:#145c33; } .tC { background:#eceff4; color:#3b4252; }
+.tA { background:#dcf3e4; color:#145c33; } .tC { background:#eceff4; color:#3b4252; } .tO { background:#f1e6ff; color:#5b2a8c; }
 """
 
-TAGS = {"Y": "You", "W": "Wife", "S": "Sales", "A": "AI", "C": "Claude"}
+TAGS = {"Y": "You", "S": "Sales", "A": "AI", "C": "Claude", "O": "Outsourced"}
 
 
 def tags(s):
     return "".join(f'<span class="tag t{c}">{TAGS[c]}</span>' for c in s)
 
 
-# (focus, tasks, owners, done-when). Owners: Y = you, W = your wife, S = salespeople, A = AI system, C = Claude.
+# (focus, tasks, owners, done-when). Owners: Y = you, S = salespeople, A = AI system, C = Claude,
+# O = outsourced (accountant / CA / freelancer).
 DAYS = [
-    ("Foundation", "Finish Settings (brand, firm name, RERA for both cities, bank, team placeholders). Remove sample "
-     "inventory and 'Sunrise Meadows'. Read the Workflow and 10-Year Plan PDFs together.", "YW", "Settings items green on Overview"),
-    ("Roles & focus markets", "Agree the split (suggested): You = Chennai + builder relationships; Wife = Bangalore + "
-     "finance, compliance, invoices. List 5 candidate micro-markets per city; rank them on ₹60 L–1.5 Cr fit, job hubs, "
-     "supply depth and your network. Pick 2–3 per city.", "YW", "Focus sheet signed off"),
-    ("Builder longlist", "Use the TN RERA / K-RERA project search for your focus localities, plus 99acres, MagicBricks "
-     "and Housing listings and hoardings. List 25 projects per city in docs/builder-scorecard.csv.", "YW", "50-row longlist"),
-    ("Empanelment kit", "One folder with PAN, GST certificate, both RERA agent certificates, partnership deed, "
-     "cancelled cheque and letterhead. Order 500 visiting cards. Make a one-page 'About Skyline Realty' PDF. Book "
-     "the CA meeting.", "W", "Kit ready (PDF + printed set)"),
-    ("Field day — Chennai", "Visit 5 sales offices in your focus markets as a CP. Meet the CP manager. Collect the CP "
-     "policy (commission %, payout trigger, tagging rules), price sheet, brochure and floor plans. Note walk-in "
-     "traffic.", "Y", "5 CP policies + price sheets"),
-    ("Field day — Bangalore", "Same in Bangalore. Note which projects look slow (quiet sales office, many unsold "
-     "floors): slow inventory makes the best pilot candidates.", "W", "5 CP policies + price sheets"),
-    ("REVIEW #1", "Score every project on the scorecard (page 4). Pick the top 12 per city. Buy a new SIM for "
-     "WhatsApp Business. Start Meta Business verification with your GST certificate and partnership deed.", "YW",
-     "Shortlist of 24 · SIM bought"),
-    ("Hiring + builder calls", "Post salesperson job ads on Naukri, LinkedIn, Indeed and apna, plus referrals. Call 12 "
-     "Chennai CP managers using the call script (page 5).", "Y", "6 meetings booked"),
-    ("Builder meetings 1–3", "Chennai meetings using the 30-minute agenda. Leave the empanelment kit. Ask for the CP "
-     "agreement draft and current offers.", "Y", "3 meetings, notes in scorecard"),
-    ("Builder meetings 4–6", "Chennai meetings 4–6. Bangalore: call 12 CP managers and book 6 meetings.", "YW",
-     "6 Chennai meetings done"),
-    ("Agreements", "Check each CP agreement against the 12-point checklist (page 4). Negotiate the payout trigger, "
-     "tagging validity and clawback, then sign the clean ones. Send the signed projects' price lists to Claude for "
-     "the upload file.", "YWC", "3 agreements signed"),
-    ("Interviews", "Walk-in interviews with a 30-minute role play (cold enquiry → visit booking, then a price "
-     "objection). Shortlist 2 per city.", "Y", "2 Chennai finalists"),
-    ("Project learning", "Walk 2 signed projects end to end: amenities, distance to IT parks and schools, common "
-     "objections. Enter 5 highlights and 5 FAQs per project in Inventory.", "Y", "2 projects fully documented"),
-    ("REVIEW #2", "Check: 6 meetings done, 3+ agreements, 3 projects live in Inventory. Meta verification status. "
-     "CA outcome: Pvt Ltd plan, GST invoice format, TDS under 194H.", "YW", "Week-2 scorecard"),
-    ("Bangalore meetings 1–3", "Wife: Bangalore meetings. You: send the offer letter to Chennai salesperson #1 "
-     "(start 17 Dec).", "WY", "Offer accepted"),
-    ("Bangalore meetings 4–6", "Meetings 4–6; collect agreements.", "W", "6 Bangalore meetings"),
-    ("Portals", "Get quotes from 99acres, MagicBricks and Housing for your localities and negotiate a 3-month trial. "
-     "Set every portal to forward leads to skylinerealty.leads@gmail.com.", "W", "Packages chosen"),
-    ("Meta set-up", "Facebook page, Instagram, ad account. Lead form: name, phone, budget, city, timeline + consent. "
-     "Connect Meta lead ads under Lead sources (Claude guides).", "YC", "Test lead lands in dashboard"),
-    ("Field + inventory", "Chennai: 3 second-wave builder visits. Bangalore: walk 2 signed projects. Check every "
-     "signed project's landing page (/p/…).", "YW", "6+ projects live"),
-    ("Network seeding", "Personal WhatsApp to about 200 contacts (friends, ex-colleagues, relatives) announcing "
-     "Skyline Realty with the referral reward. Post on LinkedIn.", "YW", "200 messages sent"),
-    ("REVIEW #3", "Approve campaigns (Marketing → Campaigns) for the top 3 projects per city, with the RERA number "
-     "on every ad. Margazhi plan: build pipeline now, book from Thai.", "YW", "Campaigns approved"),
-    ("WhatsApp go-live", "If Meta verification is done: connect the WhatsApp Cloud API, set CHANNEL_MODE=live, and "
-     "test with 3 friends end to end. If not: stay in test mode and have the salesperson send drafts by hand.", "YC",
-     "Live message test passed"),
-    ("ADS LAUNCH", "Meta lead ads + Click-to-WhatsApp, ₹2,000–2,500/day across both cities. Portals live. Check "
-     "every lead gets an AI reply within 5 minutes and a call task.", "Y", "First 20 leads"),
-    ("Salesperson #1 joins", "Onboarding: Workflow PDF, sales portal link, call discipline (call within 15 minutes), "
-     "review-mode drafts, the 5 scripts.", "YS", "Portal opened, first calls made"),
-    ("Training day 2", "Site training at 2 projects, role plays, and shadowing you on 5 calls.", "YS",
-     "Certified on 2 projects"),
-    ("First visit weekend", "Offer free cab pickup for visits (₹800–1,500) to lift the visit rate. Register every "
-     "buyer with the builder before the visit and get the ACK.", "SY", "3–5 visits, all registered"),
-    ("Visits", "Fill every visit report the same day; review the AI's strategy for each buyer.", "S", "Reports done"),
-    ("REVIEW #4", "Look at cost per lead, % of leads called within 15 minutes, and lead → visit. Kill the worst ad, "
-     "double the best.", "YW", "Week KPIs logged"),
-    ("Builder offers", "Ask every builder for year-end / New Year offers in writing (payment plans, freebies) and "
-     "add them to the project highlights.", "YW", "Offers logged"),
-    ("Bangalore salesperson", "Send the offer to the Bangalore salesperson (start 4 Jan). Wife handles Bangalore "
-     "calls until then.", "W", "Offer accepted"),
-    ("Pipeline hygiene", "Every open lead has a next step and a date. Clear drafts; no call older than 24 hours.",
-     "SY", "0 overdue"),
-    ("Christmas", "Light day. The AI handles replies; on call only for hot leads.", "A", "—"),
-    ("Visits", "Holiday-week visits run high: plan visits at 2–3 projects.", "S", "Visits done"),
-    ("Visits", "Same as yesterday.", "S", "Reports in"),
-    ("REVIEW #5", "Enter December ad and portal spend in Reports; first unit-economics look. Send builders their "
-     "weekly reports.", "YW", "Spend entered"),
-    ("Commission machine", "Invoice template (GST 18%), registration ACKs tracked, payout triggers per builder in "
-     "Commissions. Keep a working-capital buffer, because payouts take 30–90 days.", "W", "Process written down"),
-    ("Builder updates", "Send every builder a one-page update: buyers registered, visits, buyer feedback on price "
-     "and product. This builds the trust you need for a mandate later.", "Y", "Updates sent"),
-    ("2027 targets", "Set 2027 monthly targets (page 2) and incentive slabs; announce them to the team.", "YW",
+    ("Foundation", "Finish Settings: brand, firm name, TN RERA, bank details, your number. Remove sample inventory and "
+     "'Sunrise Meadows'. Bangalore waits: keep its RERA line, but add no Bangalore projects or ads yet.", "Y",
+     "Settings items green on Overview"),
+    ("Focus markets", "Pick 2–3 Chennai micro-markets from a shortlist such as OMR (Perungudi–Sholinganallur), "
+     "Pallikaranai–Medavakkam, GST Road (Guduvanchery–Urapakkam) and Porur. Rank on ₹60 L–1.5 Cr fit, IT jobs nearby, "
+     "unsold stock, your network, and travel time from home.", "Y", "2–3 markets chosen"),
+    ("Builder longlist", "List 30 projects in those markets from the TN RERA search, portals and hoardings, in "
+     "builder-scorecard.csv. Mark which are ready to move or near possession.", "Y", "30-row longlist"),
+    ("Paperwork & helpers", "Build the empanelment kit. Have the CA draft a partners' authority letter making you the "
+     "sole authorised signatory (your wife signs once). Appoint an accountant (₹5–10k/month) for GST invoices, TDS and "
+     "books.", "YO", "Kit + signed authority + accountant"),
+    ("Field day 1", "Visit 5 sales offices as a CP. Meet the CP managers and collect their CP policy, price sheet, "
+     "brochure and floor plans. Note weekend walk-in traffic.", "Y", "5 CP policies"),
+    ("Field day 2", "Visit 5 more, prioritising ready-to-move and near-possession projects (buyers decide faster).",
+     "Y", "10 CP policies"),
+    ("REVIEW #1", "Score all 30 projects (page 5) and pick the top 10. Buy the WhatsApp Business SIM; start Meta "
+     "Business verification. Post salesperson job ads (Naukri, LinkedIn, apna, referrals).", "Y",
+     "Shortlist of 10 · job ads live"),
+    ("Builder calls", "Call the 10 CP managers using the phone script and book 6 meetings over the next 10 days. "
+     "Evening: screen CVs.", "Y", "6 meetings booked"),
+    ("Builder meetings 1–2", "Use the 30-minute agenda. Ask for the agreement draft, current offers and the slow towers. "
+     "Max 3 meetings a day.", "Y", "Notes in scorecard"),
+    ("Builder meetings 3–4", "Meetings 3–4. Phone-screen 10 salesperson candidates.", "Y", "4 meetings done"),
+    ("Agreements", "Check each agreement against the 12-point checklist, negotiate, and sign the clean ones. Send their "
+     "price lists to Claude for the upload file.", "YC", "2 agreements signed"),
+    ("Interviews", "Walk-in interviews with role plays (enquiry → visit booking; price objection). Shortlist 2.", "Y",
+     "2 finalists"),
+    ("Project learning", "Walk 2 signed projects end to end. Enter 5 highlights and 5 FAQs per project in Inventory.",
+     "Y", "2 projects documented"),
+    ("REVIEW #2 + CA", "With the CA: Pvt Ltd timeline, GST invoice format, TDS under 194H. Send the offer letter to "
+     "salesperson #1 (joins 15 Dec).", "YO", "Offer accepted"),
+    ("Builder meetings 5–6", "Meetings 5–6.", "Y", "6 meetings in total"),
+    ("Portals", "Get quotes from 99acres, MagicBricks and Housing for your Chennai localities only and negotiate a "
+     "3-month trial. Set lead forwarding to the leads mailbox.", "Y", "Package chosen"),
+    ("Meta set-up", "Facebook page, Instagram, ad account, lead form with consent. Connect Meta lead ads (Claude "
+     "guides).", "YC", "Test lead in dashboard"),
+    ("Agreements + inventory", "Sign the next 2 agreements. Put every signed project in Inventory and check its "
+     "landing page.", "YC", "4 projects live"),
+    ("Warm network", "Personal WhatsApp to about 200 contacts, a LinkedIn post, and the referral reward. Ask each "
+     "contact for one name.", "Y", "200 messages sent"),
+    ("Content", "A freelancer shoots 2 project walk-through videos and photos for ads (with builder permission).", "O",
+     "2 videos"),
+    ("REVIEW #3", "Approve campaigns for the top 3 projects, ready-to-move first, with the RERA number on every ad. "
+     "Margazhi plan: visits now, bookings from Thai.", "Y", "Campaigns approved"),
+    ("Salesperson #1 joins", "Onboarding: Workflow PDF, portal link, call within 15 minutes, scripts. If Meta has "
+     "verified you: WhatsApp live (CHANNEL_MODE=live) and a test with friends.", "YSC", "Portal opened"),
+    ("ADS LAUNCH", "Meta lead ads + Click-to-WhatsApp at ₹1,500–2,000/day, Chennai only. Portals live. Training "
+     "day 2 at the sites.", "YS", "First 15 leads"),
+    ("Shadowing", "The salesperson listens to you on 5 calls, then you listen to theirs. Fix the gaps the same day.",
+     "YS", "Certified on 2 projects"),
+    ("Bank tie-ups", "Meet 2 home-loan branch managers in your focus markets; they meet buyers before builders do. "
+     "Agree a referral arrangement.", "Y", "2 tie-ups"),
+    ("First visit weekend", "Free cab pickup; register every buyer before the visit. You attend every visit for the "
+     "first 3 weekends.", "YS", "2–4 visits"),
+    ("Visits", "Visits; reports filed the same day.", "YS", "Reports in"),
+    ("REVIEW #4", "Check cost per lead, % called within 15 minutes, and lead → visit. Kill the worst ad.", "Y",
+     "KPIs logged"),
+    ("Builder offers", "Get year-end offers and payment plans from every builder in writing; add them to Inventory.",
+     "Y", "Offers logged"),
+    ("First builder reports", "Sales ▾ → Builder weekly reports: preview, send. From now on every Wednesday "
+     "(15 minutes).", "YA", "Reports sent"),
+    ("Pipeline hygiene", "Every lead has a next step; no call older than 24 hours.", "S", "0 overdue"),
+    ("Christmas", "The AI handles replies; you're on call for hot leads only.", "A", "—"),
+    ("Visits", "Holiday week: visits run high.", "S", "—"),
+    ("Visits", "Same as yesterday.", "S", "—"),
+    ("REVIEW #5", "Enter December spend in Reports. The accountant sets up the invoice template and commission "
+     "tracking.", "YO", "December entered"),
+    ("Second builder wave", "Call 6 more CP managers; target 8 empanelled by day 50.", "Y", "4 meetings booked"),
+    ("Reports + 2027 targets", "Builder reports. Set the 2027 targets and the salesperson's incentive slabs.", "YA",
      "Targets shared"),
-    ("New Year", "Day off. Send a New Year greeting to opted-in leads only.", "A", "—"),
-    ("Visits", "New Year visits; move serious buyers onto the 'book from Thai' plan.", "S", "—"),
+    ("Thai list", "Tag every warm or visited buyer for a mid-January booking follow-up. Pre-agree price ranges for "
+     "approvals.", "YS", "Hot list"),
+    ("New Year", "Day off.", "", "—"),
+    ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #6 + Bangalore joins", "Onboard the Bangalore salesperson (same 2-day training); review the week's "
-     "KPIs.", "WS", "Bangalore portal opened"),
-    ("Bangalore training day 2", "Site training on the Bangalore projects; role plays.", "WS", "Certified"),
-    ("Second builder wave", "Call 10 more builders per city; target 8 active builders per city by day 60.", "YW",
-     "6 meetings booked"),
-    ("Thai booking drive plan", "List every lead who visited in Dec–Jan and is warm or hot. Prepare builder-approved "
-     "offers for bookings from 15 Jan and pre-agree price ranges for approvals.", "YS", "Hot list of 15–25"),
-    ("Referral programme", "Formalise a ₹10k–25k voucher on every referred booking. Share the card with every "
-     "visited and booked buyer.", "Y", "Referral card live"),
-    ("Visits", "Weekend visits; invite hot buyers for a second visit with family.", "S", "—"),
-    ("Content", "Shoot 4 short site walk-through videos for Instagram and YouTube Shorts (get builder permission).",
-     "SY", "4 videos"),
-    ("REVIEW #7", "Ad budget rule: increase only campaigns with cost per visit under ₹5,000. Plan the wave-2 "
-     "builder meetings.", "YW", "Budget reset"),
-    ("Builder meetings (wave 2)", "Wave-2 meetings in both cities.", "YW", "4+ meetings"),
-    ("Booking logistics", "Confirm booking-day slots at builder offices and the builders' payment details (payments go "
-     "to the builder's account only).", "S", "Slots fixed"),
-    ("Pongal / Sankranti", "Greeting + Thai offer message to warm leads. Light day.", "A", "—"),
-    ("Thai begins", "Call every hot lead and fix booking visits for the weekend.", "SY", "8+ booking appointments"),
-    ("BOOKING WEEKEND", "Booking visits at builder offices. Management approvals within 1 hour.", "SYW", "2–4 bookings"),
-    ("BOOKING WEEKEND", "Same as yesterday.", "SYW", "—"),
-    ("REVIEW #8", "Celebrate the first bookings. For each booking check the registration ACK and the invoice due "
-     "date.", "YW", "Bookings verified"),
-    ("Negotiation review", "Read every offer and approval: were approvals fast, and which concessions closed? Approve "
-     "what the AI learned (Learning page).", "Y", "Lessons approved"),
-    ("Collections", "Get agreement registration dates from each builder's CRM and set invoice dates.", "W",
-     "Invoice calendar"),
-    ("Pilot proposal", "Pick the best builder relationship with slow inventory. Prepare the 60-day pilot proposal "
-     "(page 6) using your own data.", "YC", "Proposal ready"),
-    ("Pilot pitch — Chennai", "Meet the sales head and propose the pilot: booking target, higher slab, "
-     "co-marketing.", "Y", "Pilot agreed or next date"),
-    ("Visits", "Weekend visits.", "S", "—"),
+    ("REVIEW #6", "Weekly KPIs; agenda for the wave-2 meetings.", "Y", "Logged"),
+    ("Builder meetings", "Wave-2 meetings (2).", "Y", "2 meetings"),
+    ("Reports + meetings", "Builder reports; 2 more meetings.", "YA", "Sent"),
+    ("Referral programme", "₹10–25k voucher per referred booking. Card to every visited buyer and to your network.",
+     "Y", "Referral card live"),
+    ("Corporate outreach", "Email or LinkedIn 10 HR heads at IT companies near your markets, offering a free "
+     "home-buying session in February.", "Y", "2 replies"),
+    ("Family second visits", "Bring warm buyers back with the decision maker (spouse, parents).", "YS", "—"),
+    ("Visits", "Visits.", "S", "—"),
+    ("REVIEW #7", "Ad rule: increase only campaigns with cost per visit under ₹5,000.", "Y", "Budget reset"),
+    ("Booking logistics", "Booking slots at builder offices, builders' payment details, and cost sheets ready for hot "
+     "buyers.", "S", "Ready"),
+    ("Reports", "Builder reports.", "YA", "Sent"),
+    ("Pongal", "Greeting + Thai offer message to warm leads.", "A", "—"),
+    ("Thai begins", "Call every hot buyer and fix booking appointments.", "YS", "5+ appointments"),
+    ("BOOKING WEEKEND", "Booking visits. Approvals within 1 hour.", "YS", "1–3 bookings"),
+    ("BOOKING WEEKEND", "Same as yesterday.", "YS", "—"),
+    ("REVIEW #8", "Verify each booking: registration ACK and invoice date (with the accountant).", "YO", "Verified"),
+    ("Negotiation review", "Which concessions closed? Approve the AI's lessons on the Learning page.", "Y",
+     "Lessons approved"),
+    ("Reports + collections", "Builder reports; collections calendar from the builders' CRM teams.", "YAO",
+     "Calendar set"),
+    ("Hire #2 decision", "If leads exceed 120/month, post the job ad for salesperson #2.", "Y", "Decision"),
+    ("Inventory refresh", "Update prices and availability. Add projects that match the demand gaps (10-yr plan page).",
+     "YC", "Inventory current"),
+    ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #9 — DAY-60 CHECK", "Check: 8 builders per city? 1,000 leads? 6+ bookings? Fix the biggest miss "
-     "first.", "YW", "Day-60 scorecard"),
+    ("REVIEW #9 — DAY-60 CHECK", "Check: 8 builders? 500 leads? 3+ bookings? Fix the biggest miss first.", "Y",
+     "Day-60 scorecard"),
     ("Republic Day", "Day off.", "", "—"),
-    ("Pilot pitch — Bangalore", "Wife pitches the pilot to the best Bangalore builder.", "W", "Pilot agreed or next date"),
-    ("Inventory refresh", "Update prices and availability for every project (stale prices kill trust). Add 3–5 "
-     "projects that match the demand gaps on the 10-yr plan page.", "YWC", "Inventory current"),
-    ("Ad scale decision", "If cost per booking ≤ 30% of earnings per booking, raise the budget to ₹3,500–4,000/day.",
-     "Y", "Budget set"),
-    ("Visits", "Weekend visits.", "S", "—"),
+    ("Reports", "Builder reports.", "YA", "Sent"),
+    ("Pilot proposal", "Pick the builder with your most visits and slow inventory. Claude drafts the 60-day pilot from "
+     "your data.", "YC", "Proposal ready"),
+    ("Ad scale decision", "If cost per booking ≤ 30% of earnings per booking, raise to ₹2,500–3,000/day.", "Y",
+     "Budget set"),
+    ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #10 + January close", "Enter January spend; bookings vs target (6). Union Budget day: if housing tax "
-     "rules change, prepare a buyer message.", "YW", "January closed"),
-    ("Hire #3?", "Hire a second Chennai salesperson if leads exceed 150/month per salesperson.", "Y", "Decision made"),
-    ("Builder reports", "Weekly builder reports. From now on this is routine every Wednesday.", "YW", "Reports sent"),
-    ("Ops executive", "Job ad for a CRM/ops executive (invoices, registrations, builder reports, data hygiene). Hire "
-     "by day 100.", "W", "Job ad live"),
-    ("Referral tie-ups", "Meet 3 home-loan bank/DSA managers and 2 corporate HR teams per city (employee home-buying "
-     "day).", "YW", "5 tie-up meetings"),
-    ("Visits", "Weekend visits.", "S", "—"),
+    ("REVIEW #10 + January close", "January bookings vs target (4). Union Budget: if housing tax rules change, send "
+     "a buyer message.", "Y", "January closed"),
+    ("Pilot pitch", "Meet the sales head and propose the pilot.", "Y", "Agreed or next date"),
+    ("Reports + interviews", "Builder reports; interviews for salesperson #2.", "YA", "Sent"),
+    ("Bank tie-ups 2", "Meet 2 more home-loan managers and 1 DSA.", "Y", "3 more tie-ups"),
+    ("Corporate session prep", "Confirm the session and ask a builder to co-fund the stall.", "Y", "Date fixed"),
+    ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #11", "Weekly KPIs; check pilot progress against target.", "YW", "Logged"),
-    ("Pilot report", "Weekly pilot report to each pilot builder.", "YW", "Sent"),
-    ("Corporate activation", "One home-buying-day stall at an IT park or company, co-funded by a builder.", "SY",
-     "30+ leads"),
-    ("Learning review", "Read the AI's weekly lessons, approve them and refresh the call scripts.", "Y",
-     "Scripts updated"),
-    ("FY-end deals", "Ask builders for their March (financial-year-end) targets and special offers; builders push "
-     "hardest in Feb–Mar.", "YW", "Offers logged"),
-    ("Visits", "Weekend visits.", "S", "—"),
+    ("REVIEW #11", "Weekly KPIs; pilot progress.", "Y", "Logged"),
+    ("Salesperson #2 offer", "Send the offer (joins 16 Feb) if the threshold is met.", "Y", "Offer accepted"),
+    ("Reports + pilot report", "Builder reports, including the pilot's weekly numbers.", "YA", "Sent"),
+    ("Corporate session", "Home-buying session with a builder.", "YS", "20+ leads"),
+    ("FY-end offers", "Ask builders for their March targets and special offers.", "Y", "Offers logged"),
+    ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #12", "Open the Gate-1 view on the dashboard; list the weakest line and an owner for it.", "YW",
-     "Gap list"),
-    ("Interviews", "Interview for the second salesperson and the ops executive.", "YW", "Offers out"),
-    ("Builder reports", "Weekly builder reports.", "YW", "Sent"),
-    ("Preferred-partner case", "Draft the preferred-partner proposal for the pilot builders, with results.", "YC",
-     "Proposal ready"),
-    ("Mandate meetings", "Present the results. Ask for preferred status: higher slab, priority inventory, marketing "
-     "co-funding.", "YW", "1 preferred deal"),
-    ("FY-end booking push", "Visits + booking appointments.", "S", "—"),
-    ("FY-end booking push", "Same as yesterday.", "S", "—"),
-    ("REVIEW #13", "Weekly KPIs.", "YW", "Logged"),
-    ("Company structure", "Finalise the Pvt Ltd incorporation timeline and RERA transfer plan with the CA.", "W",
-     "Dates fixed"),
-    ("Builder reports", "Weekly builder reports.", "YW", "Sent"),
-    ("AI preset review", "After 30+ real conversations, keep Best or move to Balanced, based on conversion "
-     "numbers.", "YC", "Decision"),
-    ("March push prep", "Financial-year-end booking drive: hot list and messaging.", "S", "Hot list"),
-    ("BOOKING WEEKEND", "Booking visits.", "SYW", "—"),
-    ("BOOKING WEEKEND", "Same as yesterday.", "SYW", "—"),
-    ("REVIEW #14 + February close", "Enter February spend; bookings vs target (8).", "YW", "February closed"),
-    ("100-day retrospective", "What worked (channels, builders, scripts) and what to stop. Update the plan.", "YW",
-     "Retro notes"),
-    ("Next 100 days", "Set Q2 targets, the hiring plan and builder tiers; write the Gate-1 gap list.", "YW",
+    ("REVIEW #12", "Gate-1 view on the dashboard: the weakest line becomes this fortnight's focus.", "Y", "Gap list"),
+    ("Salesperson #2 joins", "Onboarding and site training.", "YS", "Portal opened"),
+    ("Reports", "Builder reports.", "YA", "Sent"),
+    ("Learning review", "Read the AI's lessons and refresh the call scripts.", "Y", "Scripts updated"),
+    ("March push prep", "Hot list + financial-year-end offer messaging.", "S", "Hot list"),
+    ("BOOKING PUSH", "Visits + booking appointments.", "YS", "—"),
+    ("BOOKING PUSH", "Same as yesterday.", "YS", "—"),
+    ("REVIEW #13", "Weekly KPIs.", "Y", "Logged"),
+    ("Company structure", "With the CA: Pvt Ltd timeline, RERA transfer, and the Karnataka RERA question (page 1).",
+     "YO", "Dates fixed"),
+    ("Reports + pilot review", "Builder reports; pilot day-30 review meeting.", "YA", "Reviewed"),
+    ("Bangalore go / no-go", "Go only if Chennai runs at 6+ bookings a month without you on every call. Model: hire "
+     "an experienced Bangalore city lead on salary plus profit share (no equity). Shortlist 10 builders by phone.",
+     "Y", "Decision + shortlist"),
+    ("AI preset review", "After 30+ real conversations: keep Best or move to Balanced.", "YC", "Decision"),
+    ("BOOKING WEEKEND", "Booking visits.", "YS", "—"),
+    ("BOOKING WEEKEND", "Same as yesterday.", "YS", "—"),
+    ("REVIEW #14 + February close", "February bookings vs target (5).", "Y", "February closed"),
+    ("100-day retrospective", "What worked (channels, builders, scripts) and what to stop.", "Y", "Retro notes"),
+    ("Next 100 days", "Q2 targets, hiring, builder tiers and the Bangalore timeline. Send builder reports.", "YA",
      "Plan for days 101–200"),
 ]
+
 assert len(DAYS) == 100, len(DAYS)
 
 start = dt.date(2026, 11, 24)
@@ -209,124 +192,171 @@ for i, (focus, tasks, who, done) in enumerate(DAYS):
         week += 1
         end = min(start + dt.timedelta(days=i + 6), start + dt.timedelta(days=99))
         rows += f'<tr class="wk"><td colspan="6">Week {week} · {d:%d %b} – {end:%d %b}</td></tr>'
-    cls = "rev" if focus.startswith("REVIEW") else "hol" if focus in ("Christmas", "New Year", "Republic Day",
-                                                                       "Pongal / Sankranti") \
+    cls = "rev" if focus.startswith("REVIEW") else "hol" if focus in ("Christmas", "New Year", "Republic Day", "Pongal") \
         else "we" if d.weekday() >= 5 else ""
     rows += (f'<tr class="{cls}"><td>{i + 1}</td><td>{d:%a %d %b}</td><td>{focus}</td><td>{tasks}</td>'
              f'<td>{tags(who)}</td><td>{done}</td></tr>')
 
-KPI = [  # week, builders met, empanelled, projects live, leads, visits, bookings (cumulative)
-    (1, 10, 0, 0, 0, 0, 0), (2, 16, 3, 3, 0, 0, 0), (3, 22, 6, 6, 0, 0, 0), (4, 24, 8, 8, 60, 5, 0),
-    (5, 24, 9, 10, 160, 15, 0), (6, 26, 10, 12, 280, 25, 0), (7, 30, 11, 14, 420, 38, 1), (8, 34, 12, 16, 580, 52, 3),
-    (9, 36, 13, 18, 750, 65, 6), (10, 38, 14, 20, 920, 78, 8), (11, 40, 15, 22, 1100, 92, 10),
-    (12, 42, 16, 24, 1300, 108, 12), (13, 44, 16, 26, 1500, 124, 14), (14, 46, 16, 28, 1700, 140, 16),
-    (15, 46, 16, 30, 1850, 150, 18)]
+KPI = [  # week, builders met, empanelled, projects live, leads, visits, bookings (cumulative) — Chennai only
+    (1, 10, 0, 0, 0, 0, 0), (2, 14, 2, 2, 0, 0, 0), (3, 16, 4, 4, 0, 0, 0), (4, 18, 5, 6, 40, 3, 0),
+    (5, 18, 6, 7, 100, 9, 0), (6, 20, 6, 8, 170, 15, 0), (7, 22, 7, 9, 250, 22, 0), (8, 24, 8, 10, 340, 30, 1),
+    (9, 25, 8, 11, 430, 38, 2), (10, 26, 9, 12, 520, 46, 3), (11, 27, 9, 13, 610, 54, 4),
+    (12, 28, 10, 14, 700, 62, 6), (13, 29, 10, 15, 790, 70, 7), (14, 30, 10, 16, 880, 78, 9),
+    (15, 30, 10, 16, 950, 84, 10)]
 kpi = "".join(f"<tr><td>W{w}</td><td>{a}</td><td>{b}</td><td>{c}</td><td>{d:,}</td><td>{e}</td><td><b>{f}</b></td></tr>"
               for w, a, b, c, d, e, f in KPI)
 
-MONTHS = [("Jan", 6, "Margazhi ends; Thai bookings from mid-Jan"), ("Feb", 8, "Financial-year-end offers begin"),
-          ("Mar", 10, "Financial-year-end push by builders"), ("Apr", 8, "Ugadi / Tamil New Year"),
-          ("May", 9, "Summer; NRI visits"), ("Jun", 10, "Appraisal and bonus season"),
-          ("Jul", 7, "Aadi month: slower in TN — build pipeline"), ("Aug", 10, "Aadi ends; Independence Day offers"),
-          ("Sep", 12, "Pre-festive"), ("Oct", 14, "Navratri / Dussehra / Diwali"), ("Nov", 12, "Post-Diwali"),
-          ("Dec", 14, "Year-end offers")]
+MONTHS = [("Jan", 4, "Chennai · Thai bookings from mid-Jan"), ("Feb", 5, "Chennai · financial-year-end offers"),
+          ("Mar", 7, "Chennai · FY-end push; 2nd salesperson productive"), ("Apr", 6, "Bangalore city lead starts (if go)"),
+          ("May", 7, "Summer; NRI visits"), ("Jun", 8, "Appraisal and bonus season"),
+          ("Jul", 6, "Aadi month: slower in TN"), ("Aug", 8, "Aadi ends"), ("Sep", 9, "Pre-festive"),
+          ("Oct", 11, "Navratri / Dussehra / Diwali"), ("Nov", 9, "Post-Diwali"), ("Dec", 10, "Year-end offers")]
 mrows = "".join(f"<tr><td>{m}</td><td>{n}</td><td>{note}</td></tr>" for m, n, note in MONTHS)
 
-html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Skyline Realty — 100-Day Plan & Builder Playbook</title>
+html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Skyline Realty — 100-Day Plan v2 & Builder Playbook</title>
 <style>{css}</style></head><body>
+
+<!-- ============ PAGE: REVIEW ============ -->
+<div class="page">
+<div class="cover"><h1>Skyline Realty — The Exact Plan (v2, solo founder)</h1><p>Review of the first plan · Overall plan · Channel-partner (CP) playbook · Day-by-day 100-day plan (24 Nov 2026 – 3 Mar 2027) · Chennai first</p></div>
+
+<h2>1. Review of the first 100-day plan: what was unrealistic</h2>
+<table>
+<tr><th style="width:30%">In version 1</th><th style="width:34%">Why it would not work</th><th>Version 2 (this plan)</th></tr>
+<tr><td>Two cities from day 1</td><td>One person can't build builder trust, hire, train and close in two cities 350 km apart.
+Attention splits, travel eats days.</td><td><b>Chennai only for 100 days.</b> Bangalore gets a go/no-go on day 94 and
+starts in April with a hired city lead.</td></tr>
+<tr><td>Your wife ran Bangalore, finance and compliance</td><td>She is a sleeping partner.</td><td>You own every
+decision. <b>Admin is outsourced</b>: an accountant (GST invoices, TDS, books), the CA (structure) and a freelancer
+(videos, creatives). Your wife signs one authority letter on day 4.</td></tr>
+<tr><td>16 builders empanelled</td><td>Each builder needs real relationship time. Spreading thin means nobody
+prioritises you.</td><td><b>10 empanelled, 4–5 deeply active</b>: 2 anchor brands for credibility plus 3 builders with
+slow stock, where pilots come from.</td></tr>
+<tr><td>15–20 bookings by day 100</td><td>Ads start 16 Dec. Buyers take 30–90 days from enquiry to booking, and many
+Tamil families avoid booking in Margazhi.</td><td><b>8–12 bookings</b>, starting from the Thai weekend (16–17 Jan).
+The aim is a run rate of 5–7 a month by March.</td></tr>
+<tr><td>Ops executive by day 100</td><td>A fixed cost before the revenue exists.</td><td>The system plus the accountant
+do this work. Hire only after about 8 bookings a month.</td></tr>
+<tr><td>Every day fully loaded</td><td>Burnout, then dropped follow-ups.</td><td>Tasks sized for about 4 focused hours plus calls
+and visits. Max 3 builder meetings a day. Friday afternoons protected.</td></tr>
+</table>
+
+<h2>2. What makes version 2 more likely to succeed</h2>
+<table>
+<tr><td style="width:4%"><b>1</b></td><td><b>Focus beats spread.</b> In 2–3 Chennai micro-markets, builders, bankers and buyers start recognising
+Skyline within weeks.</td></tr>
+<tr><td><b>2</b></td><td><b>Hire the salesperson first (joins day 22).</b> They make the calls and handle visits; you handle builders,
+closing and approvals, the things only you can do.</td></tr>
+<tr><td><b>3</b></td><td><b>Lead with ready-to-move and near-possession homes.</b> Buyers decide faster when they can see the finished
+flat and plan a move-in date. Completed projects with an occupancy certificate also attract no GST, a strong talking
+point (confirm per project).</td></tr>
+<tr><td><b>4</b></td><td><b>Warm channels before paid ones:</b> your network, referrals, home-loan branch managers and corporate HR
+sessions. Cheaper leads, higher trust, faster bookings. Ads add volume on top.</td></tr>
+<tr><td><b>5</b></td><td><b>Builder trust on autopilot:</b> the weekly builder report (now built into the system) goes out every
+Wednesday from week 5. That's how pilots and better slabs are earned.</td></tr>
+<tr><td><b>6</b></td><td><b>Speed and visit rate:</b> call within 15 minutes, free cab pickup, weekend slots, and you at every visit for
+the first 3 weekends to learn what closes.</td></tr>
+<tr><td><b>7</b></td><td><b>Spend only behind proof:</b> ads rise only while cost per booking stays below 30% of earnings, and salesperson
+#2 joins only above 120 leads a month.</td></tr>
+</table>
+
+<div class="warn"><b>Bangalore and the Karnataka RERA registration:</b> it is in your wife's name. Before any Bangalore
+activity, ask your CA and a RERA consultant whether the firm can trade there under her registration while she is a
+sleeping partner, or whether the firm (or the new Pvt Ltd) should register in Karnataka itself. Until then: no
+Bangalore ads or registrations. The authority letter (day 4) covers the documents she would otherwise have to
+sign.</div>
+</div>
 
 <!-- ============ PAGE: OVERALL PLAN ============ -->
 <div class="page">
-<div class="cover"><h1>Skyline Realty — The Exact Plan</h1><p>Overall plan · Channel-partner (CP) playbook with builders · Day-by-day 100-day plan (24 Nov 2026 – 3 Mar 2027)</p></div>
-
-<h2>1. The overall plan on one page</h2>
+<h2>3. The overall plan on one page</h2>
 <table>
-<tr><th style="width:24%">What we are</th><td><b>Skyline Realty — Chennai and Bangalore's AI-powered home advisor.</b>
-Buyers get honest, fast, curated options and are looked after until registration. Builders get qualified buyers,
-price discipline and weekly market intelligence.</td></tr>
-<tr><th>Who we sell to</th><td>Salaried IT and professional families aged 28–45 buying a first home or upgrading,
-budget ₹60 L–₹1.5 Cr. Second: NRIs from Tamil Nadu and Karnataka buying back home.</td></tr>
-<tr><th>Where</th><td>Chennai and Bangalore only, in 2–3 focus micro-markets per city (chosen on day 2). Nothing
-outside them until Gate 1.</td></tr>
-<tr><th>How we earn</th><td>Year 1: builder commission of 2–3% of the agreement value (+18% GST charged to the
-builder). Year 2: exclusive mandates at 3.5–5% plus marketing fees. Year 3+: own projects through joint development
-(see 10-Year Plan).</td></tr>
-<tr><th>How we win</th><td>Every enquiry answered in 5 minutes and followed up until a decision (AI + salesperson).
-Only qualified buyers visit. Registration before every visit. Management approves every price. Lowest cost per
-booking in the market.</td></tr>
-<tr><th>Team, year 1</th><td>You (Chennai, builders) · Wife (Bangalore, finance and compliance) · 1 salesperson per city
-by day 45 → 2 per city by month 6 · 1 ops executive by day 100 · site visits hosted by builders' site teams · the AI
-system (24×7).</td></tr>
-<tr><th>Year-1 target (2027)</th><td><b>120 bookings · ~₹108 Cr sales · ~₹2.8 Cr commission</b> (at ₹90 L average and 2.6%)
-· estimated costs ₹1.3–1.6 Cr · profit ₹1.2–1.5 Cr, reinvested.</td></tr>
-<tr><th>The ladder</th><td>Year 1 prove the engine → Year 2 exclusive mandates → Year 3–4 first own project (JDA) → Year 6+
-platform licensing → Year 10 ₹15,000 Cr sales/yr, ~$1B value, 100% owned.</td></tr>
+<tr><th style="width:24%">What we are</th><td><b>Skyline Realty, Chennai's AI-powered home advisor</b> (Bangalore next). Buyers get honest,
+fast, curated options and are looked after until registration. Builders get qualified buyers, price discipline and
+a weekly report.</td></tr>
+<tr><th>Who we sell to</th><td>Salaried IT and professional families aged 28–45 buying a first home or upgrading, ₹60 L–₹1.5 Cr.
+Second: NRIs from Tamil Nadu buying back home.</td></tr>
+<tr><th>Where</th><td>Chennai, 2–3 micro-markets (chosen on day 2). Bangalore from April 2027 only if the day-94 test is
+passed.</td></tr>
+<tr><th>How we earn</th><td>Year 1: builder commission of 2–3% of the agreement value (+18% GST charged to the builder). Year 2:
+exclusive mandates at 3.5–5% plus fees. Year 3+: own projects through joint development (see 10-Year Plan).</td></tr>
+<tr><th>How we win</th><td>Replies in 5 minutes and follow-up until a decision (AI + salesperson) · only qualified buyers visit
+· registration before every visit · every price approved by you · weekly builder reports · lowest cost per
+booking.</td></tr>
+<tr><th>Team, first 100 days</th><td><b>You</b> (builders, closing, approvals, hiring) · <b>salesperson #1</b> from 15 Dec ·
+<b>salesperson #2</b> from 16 Feb if leads exceed 120/month · <b>accountant</b> (part-time, outsourced) · <b>CA</b> ·
+<b>freelancer</b> for content · builders' site teams host visits · <b>the AI system</b>, 24×7.</td></tr>
+<tr><th>Year-1 target (2027)</th><td><b>90 bookings</b> (Chennai about 75, Bangalore about 15 from Q2) · ~₹80 Cr sales · <b>~₹2.1 Cr
+commission</b> · estimated costs ₹1.1–1.3 Cr · profit ₹0.8–1 Cr, reinvested.</td></tr>
+<tr><th>The ladder</th><td>Year 1 prove the engine in Chennai → Year 2 Bangalore + exclusive mandates → Year 3–4 first own project
+(JDA) → Year 6+ platform licensing → Year 10 ~$1B company, 100% owned by the partners.</td></tr>
 </table>
 
 <div class="cols">
-<div class="keep"><h3>2027 month-by-month bookings (= 120)</h3>
+<div class="keep"><h3>2027 month-by-month bookings (= 90)</h3>
 <table><tr><th>Month</th><th>Bookings</th><th>Why</th></tr>{mrows}</table></div>
-<div class="keep"><h3>Funnel maths for 10 bookings a month</h3>
+<div class="keep"><h3>Funnel maths for 8 bookings a month</h3>
 <table>
-<tr><td>Leads needed</td><td>~800</td></tr><tr><td>Lead → site visit</td><td>10%  → 80 visits</td></tr>
-<tr><td>Visit → booking</td><td>12–15% → 10 bookings</td></tr>
-<tr><td>Commission earned</td><td>10 × ₹2.25 L ≈ ₹22.5 L</td></tr>
-<tr><td>Marketing cap (30%)</td><td>≤ ₹6.75 L / month</td></tr></table>
-<p><small>Leads come from Meta ads, portals, Click-to-WhatsApp, referrals, landing pages and corporate tie-ups. Raise
-spend only while cost per booking stays below 30% of earnings per booking (shown on the 10-yr plan page).</small></p>
+<tr><td>Leads needed</td><td>~650</td></tr><tr><td>Lead → site visit</td><td>10% → 65 visits</td></tr>
+<tr><td>Visit → booking</td><td>12–15% → 8 bookings</td></tr>
+<tr><td>Commission earned</td><td>8 × ₹2.25 L ≈ ₹18 L</td></tr>
+<tr><td>Marketing cap (30%)</td><td>≤ ₹5.4 L / month</td></tr></table>
+<p><small>At ₹90 L average and 2.5%. Warm channels (referrals, bankers, corporate sessions) lower the cost per booking
+the most.</small></p>
 <h3>Who does what</h3>
-<table><tr><td>{tags('Y')}</td><td>Chennai builders, pilots, approvals, Chennai team</td></tr>
-<tr><td>{tags('W')}</td><td>Bangalore builders and team, invoices, GST/TDS, CA, compliance</td></tr>
-<tr><td>{tags('S')}</td><td>Calls within 15 min, visits, closing, visit reports</td></tr>
-<tr><td>{tags('A')}</td><td>Replies, qualification, follow-ups, reminders, strategy</td></tr>
+<table><tr><td>{tags('Y')}</td><td>Builders, closing, approvals, hiring, Monday review</td></tr>
+<tr><td>{tags('S')}</td><td>Calls within 15 minutes, visits, follow-up, visit reports</td></tr>
+<tr><td>{tags('A')}</td><td>Replies, qualification, follow-ups, reminders, builder reports</td></tr>
+<tr><td>{tags('O')}</td><td>Accountant: invoices, GST/TDS · CA: structure · freelancer: content</td></tr>
 <tr><td>{tags('C')}</td><td>Inventory uploads, set-up, proposals, system changes</td></tr></table></div>
 </div>
 </div>
 
-<!-- ============ PAGE: BUDGET + KPI ============ -->
+<!-- ============ PAGE: BUDGET + KPI + WEEK ============ -->
 <div class="page">
-<h2>2. 100-day budget (estimates; get real quotes)</h2>
+<h2>4. 100-day budget, Chennai only (estimates; get real quotes)</h2>
 <table>
 <tr><th>Item</th><th>100 days</th><th>Notes</th></tr>
-<tr><td>Meta ads (lead ads + Click-to-WhatsApp)</td><td>₹3.5–5 L</td><td>₹2,000–2,500/day from 16 Dec, up to ₹3,500–4,000/day only if the 30% rule holds</td></tr>
-<tr><td>Portals (99acres / MagicBricks / Housing)</td><td>₹1.5–3 L</td><td>3-month trial packages for focus localities; negotiate</td></tr>
-<tr><td>Salespeople (2) — fixed</td><td>₹1.5–2 L</td><td>₹25–35k/month each</td></tr>
-<tr><td>Sales incentives</td><td>₹2–3 L</td><td>₹10–15k per booking (or 0.1–0.15% of deal value)</td></tr>
-<tr><td>Free cab pickup for site visits</td><td>₹0.6–1 L</td><td>~₹1,000 per visit for about half the visits; lifts the visit rate</td></tr>
-<tr><td>CA, legal, CP agreements, Pvt Ltd groundwork</td><td>₹0.75–1.5 L</td><td></td></tr>
-<tr><td>Brand: cards, standee, one-pager, video shoots</td><td>₹0.3–0.5 L</td><td></td></tr>
-<tr><td>AI + hosting + WhatsApp messages</td><td>₹0.4–0.6 L</td><td>Claude ~₹10–25k/month at current volume</td></tr>
-<tr><td>Contingency</td><td>₹1 L</td><td></td></tr>
-<tr><th>Total</th><th>₹11.5–17.5 L</th><th>Plus keep a <b>₹10 L working-capital buffer</b>: commissions arrive 30–90 days after booking.</th></tr>
+<tr><td>Meta ads (lead ads + Click-to-WhatsApp)</td><td>₹2.5–3.5 L</td><td>₹1,500–2,000/day from 16 Dec; up to ₹2,500–3,000/day only if the 30% rule holds</td></tr>
+<tr><td>Portals (one city)</td><td>₹0.75–1.5 L</td><td>3-month trial for your localities</td></tr>
+<tr><td>Salespeople — fixed</td><td>₹1.2–1.6 L</td><td>#1 from 15 Dec, #2 from 16 Feb (if triggered); ₹25–35k/month</td></tr>
+<tr><td>Sales incentives</td><td>₹1–1.8 L</td><td>₹10–15k per booking</td></tr>
+<tr><td>Free cab pickup</td><td>₹0.4–0.6 L</td><td>~₹1,000 per visit, about half the visits</td></tr>
+<tr><td>Accountant (outsourced)</td><td>₹0.2–0.3 L</td><td>GST invoices, TDS, books</td></tr>
+<tr><td>CA, legal, agreements, Pvt Ltd groundwork</td><td>₹0.5–1 L</td><td>incl. authority letter, RERA advice</td></tr>
+<tr><td>Freelancer content, cards, one-pager</td><td>₹0.3–0.5 L</td><td></td></tr>
+<tr><td>AI + hosting + WhatsApp messages</td><td>₹0.3–0.5 L</td><td></td></tr>
+<tr><td>Contingency</td><td>₹0.75 L</td><td></td></tr>
+<tr><th>Total</th><th>₹8–11.5 L</th><th>Plus keep an <b>₹8 L buffer</b>: commission arrives 30–90 days after booking.</th></tr>
 </table>
 
-<h2>3. Weekly scorecard — cumulative targets</h2>
+<h2>5. Weekly scorecard — cumulative targets (Chennai)</h2>
 <table><tr><th>Week</th><th>Builders met</th><th>Empanelled</th><th>Projects live</th><th>Leads</th><th>Site visits</th><th>Bookings</th></tr>{kpi}</table>
-<div class="ok"><b>Day-100 targets:</b> 16 builders empanelled (8 per city) · 30 projects live · ~1,850 leads · ~150 site
-visits · <b>15–20 bookings</b> (≈ ₹35–45 L commission earned) · 2 pilots running · 1 preferred-partner deal · WhatsApp
-live · 2 salespeople + ops executive hired · Pvt Ltd plan fixed with the CA.</div>
+<div class="ok"><b>Day-100 targets:</b> 10 builders empanelled (4–5 active) · 16 projects live · ~950 leads · ~85 site visits ·
+<b>8–12 bookings</b> (≈ ₹18–27 L commission earned) · 1 pilot running · WhatsApp live · 2 salespeople · accountant in
+place · Bangalore go/no-go decided.</div>
 
-<div class="keep"><h3>Daily rhythm (from day 23)</h3>
+<div class="keep"><h3>Your week as a solo founder (from week 4)</h3>
 <table>
-<tr><td style="width:18%">9:00</td><td>Salespeople open their portal: overdue calls first, then today's tasks and drafts. Founders read the morning digest.</td></tr>
-<tr><td>9:30–13:00</td><td>Calls: new leads within 15 minutes, visit confirmations, follow-ups.</td></tr>
-<tr><td>14:00–18:00</td><td>Weekdays: visits / builder meetings. <b>Weekends are visit days</b>; the team's weekly off is Tuesday.</td></tr>
-<tr><td>Same day</td><td>Visit report filled for every visit; approvals answered within 1 hour (the AI waits for you).</td></tr>
-<tr><td>Monday</td><td>Founders' review (30–45 min): 10-yr plan page, Reports, Gate-1 weakest line, ad budget moves.</td></tr>
-<tr><td>Wednesday</td><td>Weekly report to every builder.</td></tr>
+<tr><td style="width:13%"><b>Mon</b></td><td>9:00 digest · 9:30–10:30 <b>review</b> (10-yr plan page, Reports) · calls and approvals · afternoon: builder meeting</td></tr>
+<tr><td><b>Tue</b></td><td>Builder prospecting and meetings (max 3) · 30 minutes with the accountant when needed</td></tr>
+<tr><td><b>Wed</b></td><td>10:00 <b>send builder reports</b> (15 min) · meetings · marketing (ads, content)</td></tr>
+<tr><td><b>Thu</b></td><td>Coach the salesperson (listen to 3 calls) · closing calls · bank and corporate tie-ups</td></tr>
+<tr><td><b>Fri</b></td><td>Morning: booking logistics and hot list for the weekend · <b>afternoon off</b> (protect it)</td></tr>
+<tr><td><b>Sat–Sun</b></td><td>Site visits and closing, the peak days · visit reports the same evening</td></tr>
+<tr><td><b>Daily</b></td><td>Approvals within 1 hour (the AI waits for you) · 7 PM: 10-minute pipeline check · salesperson's weekly off: Tuesday</td></tr>
 </table></div>
 
-<div class="warn"><b>Local calendar that drives sales (verify the exact dates each year):</b>
-<ul><li><b>Margazhi (mid-Dec → mid-Jan)</b> is seen by many Tamil families as a poor month to buy: use it for visits and
-pipeline, and close from Thai (mid-January).</li>
-<li><b>Feb–Mar:</b> builders push for financial-year-end targets, the best time to ask for offers and higher slabs.</li>
-<li><b>Aadi (mid-Jul → mid-Aug)</b> is slow in Tamil Nadu.</li>
-<li><b>Navratri / Dussehra / Diwali</b> are the peak.</li></ul></div>
+<div class="warn"><b>Local calendar (verify the dates each year):</b>
+<ul><li><b>Margazhi (mid-Dec → mid-Jan):</b> visits and pipeline; close from Thai.</li>
+<li><b>Feb–Mar:</b> builders' financial-year-end push, the best time to ask for offers and slabs.</li>
+<li><b>Aadi (mid-Jul → mid-Aug):</b> slow.</li>
+<li><b>Navratri → Diwali:</b> peak.</li></ul></div>
 </div>
 
 <!-- ============ PAGE: CP PLAN — STRATEGY ============ -->
 <div class="page">
-<h2>4. CP plan with builders — the strategy</h2>
+<h2>6. CP plan with builders — the strategy</h2>
 <p>Most channel partners are one of 100–300 brokers a builder works with, competing on discounts. <b>Skyline's plan is to
 become the builder's most reliable sales partner in each focus market, then convert that into preferred and exclusive
 deals.</b> We earn that with data, not discounts.</p>
@@ -335,7 +365,7 @@ deals.</b> We earn that with data, not discounts.</p>
 <table>
 <tr><th style="width:17%">Tier</th><th>What it is</th><th style="width:20%">Typical terms*</th><th style="width:24%">How to reach it</th></tr>
 <tr><td><b>1 · Empanelled CP</b></td><td>Standard CP agreement; we can bring buyers to the project.</td><td>2–3% of agreement value</td><td>Empanelment kit + meeting (week 2–4)</td></tr>
-<tr><td><b>2 · Pilot</b></td><td>60-day focused push on one slow tower or configuration, with targets both sides.</td><td>+0.5% slab above target, priority holds</td><td>After first bookings with the builder (day 55–70)</td></tr>
+<tr><td><b>2 · Pilot</b></td><td>60-day focused push on one slow tower or configuration, with targets both sides.</td><td>+0.5% slab above target, priority holds</td><td>After first bookings with the builder (day 66–71)</td></tr>
 <tr><td><b>3 · Preferred partner</b></td><td>Priority inventory, volume slabs, co-funded marketing, early access to launches.</td><td>3–3.5% slabs + co-marketing</td><td>Pilot delivered; ~4+ bookings/month with them</td></tr>
 <tr><td><b>4 · Exclusive mandate</b></td><td>Sole sales and marketing for a phase or launch; input on pricing; pre-launch EOIs from our demand book.</td><td>3.5–5% + marketing retainer</td><td>Year 2: ≥25% of the project's monthly sales come from us</td></tr>
 </table>
@@ -345,7 +375,7 @@ bulk inventory purchases in years 1–2.</small></p>
 <h3>Which builders to approach — scorecard (out of 100; approach only at 65+)</h3>
 <table>
 <tr><th>Must pass (else skip)</th><td colspan="2">RERA-registered project with approvals · no stalled construction · no serious complaints on the RERA page · will sign a written CP agreement · asks for no deposit or fee for empanelment</td></tr>
-<tr><td>Delivery track record (past projects on time)</td><td>20</td><td rowspan="7" style="width:38%"><small><b>How to check:</b> RERA project page (quarterly progress, complaints), visit 1 completed project and talk to residents, ask 2 other CPs about payouts, Google reviews, site visit to see actual progress vs the RERA schedule.<br><br><b>Mix to aim for per city:</b> 2–3 "anchor" builders (strong brand, steady demand) for credibility, plus 4–5 mid-size builders with slow inventory (where pilots and higher slabs come from).</small></td></tr>
+<tr><td>Delivery track record (past projects on time)</td><td>20</td><td rowspan="7" style="width:38%"><small><b>How to check:</b> RERA project page (quarterly progress, complaints), visit 1 completed project and talk to residents, ask 2 other CPs about payouts, Google reviews, site visit to see actual progress vs the RERA schedule.<br><br><b>Mix to aim for in Chennai (first 100 days):</b> 2 "anchor" builders (strong brand, steady demand) for credibility, plus 3 mid-size builders with slow inventory (where pilots and higher slabs come from). 10 empanelled, 4–5 truly active.</small></td></tr>
 <tr><td>Pays CPs on time (ask other CPs)</td><td>20</td></tr>
 <tr><td>Fits our price band and focus micro-markets</td><td>15</td></tr>
 <tr><td>Product value vs neighbouring projects</td><td>15</td></tr>
@@ -368,7 +398,7 @@ bulk inventory purchases in years 1–2.</small></p>
 <li><b>Site support</b>: site staff for our visits, sample flat, brochures, floor plans, price sheets</li>
 <li><b>Invoicing</b>: GST 18% on commission; TDS under Sec. 194H (confirm the current rate with your CA); NEFT</li>
 <li><b>Buyer data</b> used only for registration; no poaching of our buyers for other projects</li>
-<li><b>Term, termination, jurisdiction</b> (Chennai / Bangalore courts)</li>
+<li><b>Term, termination, jurisdiction</b> (Chennai courts)</li>
 </ol>
 <div class="warn"><b>Red flags, walk away:</b> fee or deposit for empanelment · project not RERA-registered · stalled
 site · reports of delayed CP payouts · builder wants buyer details before agreeing to protect your registration ·
@@ -377,14 +407,14 @@ site · reports of delayed CP payouts · builder wants buyer details before agre
 
 <!-- ============ PAGE: APPROACH + SCRIPTS ============ -->
 <div class="page">
-<h2>5. How to approach builders</h2>
+<h2>7. How to approach builders</h2>
 <div class="cols">
 <div class="keep"><h3>Ways in, best first</h3><ol>
 <li><b>Warm introduction</b>: bankers (home-loan managers know every builder), architects, other CPs, friends in the
 industry. Best response rate.</li>
 <li><b>Walk into the project sales office</b> and ask for the CP manager. Weekday mornings are quiet; weekends are busy.</li>
 <li><b>CP meets and launch events</b>: builders invite CPs at launches. Get added to each builder's CP WhatsApp group.</li>
-<li><b>CREDAI chapters and property expos</b> in Chennai and Bangalore: meet many builders in one day.</li>
+<li><b>CREDAI chapters and property expos</b> in Chennai: meet many builders in one day.</li>
 <li><b>LinkedIn</b> to Sales Heads / VP Sales, short message + one-pager.</li>
 <li><b>Cold call</b> the CP desk numbers listed on websites and hoardings.</li></ol></div>
 <div class="keep"><h3>Who to meet, for what</h3><table>
@@ -416,7 +446,7 @@ suit you?"</div>
 
 <h3>WhatsApp / email intro (send after the call, with the one-pager)</h3>
 <div class="script">Dear <i>[name]</i>, thank you for your time today. As discussed, Skyline Realty is a RERA-registered
-channel partner (TN: <i>[no.]</i> · KA: <i>[no.]</i>) focused on <i>[micro-markets]</i>. What we offer partners: replies to
+channel partner (TN RERA: <i>[no.]</i>) focused on <i>[micro-markets]</i>. What we offer partners: replies to
 every enquiry within 5 minutes · only qualified, registered buyers at your site · no discount-passing · a weekly
 buyer-feedback report. Our empanelment documents are attached. Looking forward to meeting on <i>[date]</i>.
 — <i>[name]</i>, Skyline Realty, <i>[phone]</i></div>
@@ -433,12 +463,12 @@ biggest problem with CPs? How do tagging and payouts work? Any offers running no
 
 <!-- ============ PAGE: OBJECTIONS + PILOT ============ -->
 <div class="page">
-<h2>6. Objections, pilot and mandate</h2>
+<h2>8. Objections, pilot and mandate</h2>
 <h3>Handling builder objections</h3>
 <table>
 <tr><th style="width:30%">They say</th><th>You say</th></tr>
 <tr><td>"We already have 200 CPs."</td><td>"That's why we focus on qualified buyers and reporting, not volume of brokers. Judge us on bookings in 60 days. There's no cost to you unless we deliver."</td></tr>
-<tr><td>"You're a new company."</td><td>"New firm, experienced founders, RERA-registered in both states. Our system answers every buyer in 5 minutes. Let our first 60 days speak; you lose nothing by empanelling us."</td></tr>
+<tr><td>"You're a new company."</td><td>"New firm, experienced founder, RERA-registered. Our system answers every buyer in 5 minutes. Let our first 60 days speak; you lose nothing by empanelling us."</td></tr>
 <tr><td>"Commission is fixed at 2%."</td><td>"Agreed for now. Can we add a slab if we cross 3 bookings a quarter? It only costs you when we outperform."</td></tr>
 <tr><td>"CPs give away commission as discount."</td><td>"Not us. Every price is approved by management, and we can put no-discount-passing in the agreement."</td></tr>
 <tr><td>"Payout only after full registration."</td><td>"Can we split it: 50% at agreement registration and 50% at 20% collection? That keeps us both aligned."</td></tr>
@@ -447,7 +477,7 @@ biggest problem with CPs? How do tagging and payouts work? Any offers running no
 <tr><td>"How do I know you won't take our buyers elsewhere?"</td><td>"A registered buyer stays registered with you, and we show you every registered buyer's status in the weekly report."</td></tr>
 </table>
 
-<h3>The 60-day pilot proposal (one page to hand over, from day 59)</h3>
+<h3>The 60-day pilot proposal (one page to hand over, from day 66)</h3>
 <div class="cols">
 <div class="card"><h3>Skyline commits</h3><ul>
 <li>Focus marketing on <i>[tower / config]</i>: ₹<i>[X]</i> ad spend over 60 days</li>
@@ -478,7 +508,7 @@ Consistently ≥25% of the project's monthly sales → pitch an <b>exclusive man
 <h3>Builder relationship rhythm (every empanelled builder)</h3>
 <table>
 <tr><td style="width:18%">Before each visit</td><td>Register the buyer, get the ACK (built into the system: Builder registrations page)</td></tr>
-<tr><td>Weekly (Wed)</td><td>Report: registered buyers, visits, feedback, bookings, payments due</td></tr>
+<tr><td>Weekly (Wed)</td><td>Automatic report from the system (Sales ▾ → Builder weekly reports): registered buyers, visits, feedback, bookings, payments due</td></tr>
 <tr><td>Monthly</td><td>15-minute call with the sales head: what's slow, new offers, upcoming launches</td></tr>
 <tr><td>Each booking</td><td>Invoice on the trigger date; chase from day 31 (the system reminds you every Monday)</td></tr>
 <tr><td>Quarterly</td><td>Slab review: show your numbers, ask for the next slab or tier</td></tr>
@@ -487,10 +517,10 @@ Consistently ≥25% of the project's monthly sales → pitch an <b>exclusive man
 
 <!-- ============ PAGES: 100 DAYS ============ -->
 <div class="page">
-<h2>7. The 100-day plan — day by day</h2>
+<h2>9. The 100-day plan — day by day</h2>
 <p><small>Shading: <span style="background:#fff7d6;padding:0 2mm">weekly review</span>
 <span style="background:#f6f8fb;padding:0 2mm">weekend (visit days)</span>
-<span style="background:#f3f0ff;padding:0 2mm">holiday</span>. Owners: {tags('YWSAC')}. If you fall behind, keep the
+<span style="background:#f3f0ff;padding:0 2mm">holiday</span>. Owners: {tags('YSAOC')}. If you fall behind, keep the
 Monday review and the "done when" column honest; push dates, don't skip steps.</small></p>
 <table class="days"><thead><tr><th>Day</th><th>Date</th><th>Focus</th><th>Tasks</th><th>Who</th><th>Done when</th></tr></thead>
 {rows}
@@ -498,18 +528,19 @@ Monday review and the "done when" column honest; push dates, don't skip steps.</
 </div>
 
 <div class="page">
-<h2>8. After day 100 — what success unlocks</h2>
+<h2>10. After day 100 — what success unlocks</h2>
 <table>
 <tr><th style="width:30%">If by day 100…</th><th>Then in days 101–200…</th></tr>
-<tr><td>15+ bookings and cost per booking ≤ 30% of earnings</td><td>Raise ads gradually, hire salesperson #3–4, add 1 micro-market per city</td></tr>
-<tr><td>A pilot hit its target</td><td>Convert it to preferred partner; start a second pilot per city</td></tr>
-<tr><td>Fewer than 10 bookings</td><td>Don't increase spend. Check the weakest funnel step (contact speed? visit rate? visit → booking?) and fix it first</td></tr>
+<tr><td>8+ bookings and cost per booking ≤ 30% of earnings</td><td>Raise ads gradually, hire salesperson #3, add 1 micro-market, start Bangalore with a city lead</td></tr>
+<tr><td>A pilot hit its target</td><td>Convert it to preferred partner; start a second pilot</td></tr>
+<tr><td>Fewer than 6 bookings</td><td>Don't increase spend. Check the weakest funnel step (contact speed? visit rate? visit → booking?) and fix it first</td></tr>
 <tr><td>One builder is more than 40% of commission</td><td>Push the second and third builders in that micro-market</td></tr>
 <tr><td>Commission is collected late</td><td>Tighten payout terms in renewals; prefer builders who pay on time</td></tr>
 </table>
 <div class="cover" style="margin-top:4mm"><h1 style="font-size:13pt">The 100-day promise</h1>
-<p>By 3 March 2027: 16 builders signed, 30 projects live, WhatsApp live, a 2-city team, 15–20 bookings, 2 pilots and a
-first preferred deal. That's the proof you need to start Year 2's exclusive mandates.</p></div>
+<p>By 3 March 2027: 10 builders signed (4–5 active), 16 projects live, WhatsApp live, 2 salespeople, 8–12 bookings, a
+pilot running and builders receiving your weekly report. That's the proof you need to open Bangalore and start
+Year 2's exclusive mandates.</p></div>
 </div>
 </body></html>"""
 open(f"{ROOT}/docs/100-day-plan.html", "w").write(html)

@@ -1887,3 +1887,60 @@ def test_studio_needs_rera_and_survives_ai_outage(fresh, monkeypatch, tmp_path):
     r = studio.create(p["id"], ("feed",))            # no JSON reply queued → the AI call fails → plain copy
     assert r["ok"] and r["fallback"] and len(r["ids"]) == 3
     assert studio.weekly_pack()["ok"] is False        # partner project without permission isn't picked
+
+
+def test_studio_tips_and_testimonials(fresh, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from salesagent import studio
+    from salesagent.server import app
+    monkeypatch.setattr(studio, "DATA_DIR", tmp_path)
+    s = get_settings()
+    monkeypatch.setattr(s, "raw", {**s.raw, "business": {**s.business, "rera_by_city": "Chennai: TN/Agent/1"}})
+    # tip: AI writes general advice; numbers are flagged; no project needed
+    fresh.fake.json_replies.append({"headline": "5 checks before the advance", "points": [
+        "Verify the RERA certificate online", "Ask for the approved plan", "Stamp duty is 7% here",
+        "Read the agreement draft"], "caption": "Save this.", "hashtags": ["ChennaiHomes"]})
+    r = studio.create_tip("documents")
+    assert r["ok"] and len(r["ids"]) == 4
+    tip = studio.get(r["ids"][0])
+    assert tip["kind"] == "tip" and tip["project_id"] is None
+    assert any("numbers" in w for w in json.loads(tip["copy"])["warnings"])
+    assert "not legal or financial advice" in tip["caption"] and "TN/Agent/1" in tip["caption"]
+    assert "Do not quote specific tax rates" in fresh.fake.calls[-1]["messages"][0]["content"]
+    assert studio.approve(tip["id"])["ok"]
+    # testimonial: consent is mandatory, words are never rewritten, no AI call
+    calls_before = len(fresh.fake.calls)
+    assert "consent" in studio.create_testimonial("Very smooth, honest team throughout", "Priya R.", False)["error"]
+    p = _partner_setup()
+    t = studio.create_testimonial("“Very smooth, honest team. They answered every question, even late at night.”",
+                                  "Priya R.", True, p["id"])
+    assert t["ok"] and len(t["ids"]) == 4 and len(fresh.fake.calls) == calls_before
+    row = studio.get(t["ids"][0])
+    assert "Very smooth, honest team. They answered every question, even late at night." in row["caption"]
+    assert json.loads(row["copy"])["consent_at"]
+    assert "permission" in studio.approve(row["id"])["error"]          # partner project still needs the builder's OK
+    db.update("inv_projects", p["id"], {"marketing_ok": 1})
+    assert studio.approve(row["id"])["ok"]
+    # dashboard forms
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        page = c.get("/studio", auth=("o", "pw")).text
+        assert "Home-buying tip" in page and "Buyer testimonial" in page
+        fresh.fake.json_replies.append({"headline": "Site visit checklist", "points": ["Check light"], "caption": "c",
+                                        "hashtags": []})
+        assert "tip drafts" in c.post("/studio/tip", data={"topic": "site_visit_checklist"}, auth=("o", "pw")).text
+        res = c.post("/studio/testimonial", data={"quote": "Loved the whole experience with the team", "name": "Arun",
+                                                  "consent": "1"}, auth=("o", "pw"))
+        assert "testimonial drafts" in res.text
+
+
+def test_testimonial_ask_a_week_after_booking(fresh):
+    from salesagent import studio
+    lead = mk_lead()
+    db.update("leads", lead["id"], {"stage": "booked"})
+    db.insert("bookings", {"lead_id": lead["id"], "status": "paid",
+                           "paid_at": (get_settings().now() - timedelta(days=8)).isoformat()})
+    assert studio.testimonial_asks() == 1
+    assert any("2 lines about your experience" in t for t in to(fresh, rm_phone()))
+    assert studio.testimonial_asks() == 0                                     # asked once only

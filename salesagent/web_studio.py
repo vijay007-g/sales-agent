@@ -6,7 +6,7 @@ import json
 from html import escape
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from . import db, inventory, studio
@@ -42,6 +42,9 @@ def creative_file(filename: str, download: int = 0):
 
 def _card(c: dict, projects: dict) -> str:
     p = projects.get(c["project_id"]) or {}
+    label = p.get("name") or {"tip": "Home-buying tip", "testimonial": "Buyer testimonial"}.get(c["kind"], "?")
+    if c["kind"] == "testimonial" and p.get("name"):
+        label = f"Testimonial · {p['name']}"
     url = f"/creative/{escape(c['filename'])}"
     copy = json.loads(c["copy"] or "{}")
     warn = "".join(f"<div class='notice' style='padding:4px 8px;margin:4px 0'>⚠️ {escape(w)}</div>"
@@ -67,7 +70,7 @@ def _card(c: dict, projects: dict) -> str:
     cap = (f"<details><summary><small>Caption</small></summary><form method='post' action='/studio/{c['id']}/caption'>"
            f"<textarea name='caption' rows='7' style='width:100%'>{escape(c['caption'] or '')}</textarea>"
            f"<button class='small'>Save caption</button></form></details>")
-    return (f"<div class='card' style='padding:10px'>{media}<p style='margin:6px 0'><b>{escape(p.get('name', '?'))}</b>"
+    return (f"<div class='card' style='padding:10px'>{media}<p style='margin:6px 0'><b>{escape(label)}</b>"
             f"<br><small>{escape(studio.FORMAT_LABEL.get(c['format'], c['format']))} · {escape(c['design'] or '')} · "
             f"angle: {escape(c['angle'] or '')}<br>{escape(status)}</small></p>{warn}{btns}{cap}</div>")
 
@@ -129,6 +132,25 @@ Nothing is posted until you approve it.</p>
 <label style="flex:1;min-width:220px">Your idea (optional)<br><input name="brief" placeholder="e.g. Pongal offer: free car park (builder approved)" style="width:100%"></label>
 <button>Create 3 designs</button></form>
 <p><small>Takes 20–60 seconds. Each run makes 3 different designs per format, so you can pick the best one.</small></p></div>
+
+<div class="cols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+<div class="card"><h3>Home-buying tip</h3>
+<p><small>Useful, general posts build trust between project posts (one goes into every weekly pack). Numbers and rates are
+flagged so you can check them.</small></p>
+<form method="post" action="/studio/tip"><label>Topic<br><select name="topic">{"".join(f"<option value='{k}'>{escape(v)}</option>" for k, v in studio.TIP_TOPICS.items())}</select></label><br>
+<label>Your angle (optional)<br><input name="brief" style="width:100%" placeholder="e.g. focus on first-time buyers"></label><br>
+<button>Create tip posts</button></form></div>
+<div class="card"><h3>Buyer testimonial</h3>
+<p><small>The buyer's <b>own words</b>, never rewritten by the AI. Ask after booking or key handover: “Could you share 2 lines
+about your experience with us? May we post it with your first name?”</small></p>
+<form method="post" action="/studio/testimonial" enctype="multipart/form-data">
+<label>What the buyer said<br><textarea name="quote" rows="3" style="width:100%" maxlength="320"
+placeholder="Exactly as they wrote it"></textarea></label><br>
+<label>Name as they want it shown<br><input name="name" placeholder="e.g. Priya R., IT professional"></label>
+<label>Project (optional)<br><select name="project_id"><option value="">—</option>{opts}</select></label><br>
+<label>Photo (optional, e.g. key handover; only with their OK)<br><input type="file" name="photo" accept="image/*"></label><br>
+<label><input type="checkbox" name="consent" value="1"> The buyer agreed in writing (WhatsApp/email) to this quote
+(and photo, if added) being published</label><br><button>Create testimonial posts</button></form></div></div>
 
 <div class="card"><h3>Projects ready for marketing</h3>
 <table><tr><th>Project</th><th>RERA no.</th><th>Photos</th><th>Builder permission</th><th>Status</th></tr>
@@ -204,3 +226,22 @@ def studio_permission(pid: int, _: str = Depends(auth)):
     db.update("inv_projects", pid, {"marketing_ok": 1})
     db.audit(None, "owner", "marketing_permission", str(pid))
     return _back("Builder permission recorded. Keep their written OK (email/letter) on file.")
+
+
+@router.post("/studio/tip")
+def studio_tip(topic: str = Form(...), brief: str = Form(""), _: str = Depends(auth)):
+    r = studio.create_tip(topic, ("feed", "story"), brief)
+    if not r["ok"]:
+        return _back(r["error"])
+    return _back(f"Created {len(r['ids'])} tip drafts." + (" (AI unavailable: a standard tip was used.)"
+                                                          if r["fallback"] else ""))
+
+
+@router.post("/studio/testimonial")
+async def studio_testimonial(quote: str = Form(""), name: str = Form(""), project_id: str = Form(""),
+                             consent: str = Form(""), photo: UploadFile | None = File(None), _: str = Depends(auth)):
+    data = await photo.read() if photo and photo.filename else None
+    if data and len(data) > 8 * 1024 * 1024:
+        return _back("Photo too large (max 8 MB).")
+    r = studio.create_testimonial(quote, name, bool(consent), int(project_id) if project_id.strip() else None, data)
+    return _back(f"Created {len(r['ids'])} testimonial drafts." if r["ok"] else r["error"])

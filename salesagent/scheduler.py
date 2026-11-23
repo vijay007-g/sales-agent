@@ -159,6 +159,9 @@ def tick() -> dict:
             stats["studio_pack"] = studio.weekly_pack()
         if not quiet:
             stats["studio_posted"] = studio.post_due()
+        if now.hour >= 11 and not quiet and not _sent_today("testimonial_asks"):
+            db.audit(None, "system", "testimonial_asks", "")
+            stats["testimonial_asks"] = studio.testimonial_asks()
     except Exception:  # noqa: BLE001 - never stop the clock for a marketing problem
         log.exception("studio job failed")
 

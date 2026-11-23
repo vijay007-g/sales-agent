@@ -151,6 +151,10 @@ post-visit strategy, management decisions and hot buyers. Reports → AI usage s
     `marketing.auto_publish: true`;
   - otherwise you get a WhatsApp with the image and caption to post;
   - stories also go to the salespeople for their WhatsApp status.
+- **Home-buying tips:** general, trust-building posts (RERA checks, carpet area, hidden costs, loan pre-approval,
+  site-visit checklist…). One goes into every weekly pack; numbers and rates are flagged for checking.
+- **Buyer testimonials:** the buyer's own words, never rewritten by the AI, only with their written consent (recorded).
+  Seven days after a booking is paid, the salesperson is reminded to ask for 2 lines.
 - **Settings:** `marketing: {weekly_pack, auto_publish, post_time, cta_phone}` in Settings → Advanced.
 
 ## Weekly builder reports (Sales ▾ → Builder weekly reports)

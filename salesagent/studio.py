@@ -576,8 +576,7 @@ def approve(cid: int, actor: str = "owner") -> dict:
     c = get(cid)
     if not c:
         return {"ok": False, "error": "Not found"}
-    proj = inventory.get_project(c["project_id"])
-    problems = blockers(proj) if proj else ["Project deleted"]
+    problems = kind_blockers(c)
     if problems:
         return {"ok": False, "error": "Can't approve yet: " + "; ".join(problems)}
     when = next_slot(c["format"])
@@ -654,8 +653,8 @@ def post_due() -> int:
     now = s.now().isoformat()
     n = 0
     for c in db.q("SELECT * FROM creatives WHERE status = 'approved' AND post_at IS NOT NULL AND post_at <= ?", (now,)):
-        proj = inventory.get_project(c["project_id"])
-        name = proj["name"] if proj else "project"
+        proj = inventory.get_project(c["project_id"]) if c["project_id"] else None
+        name = proj["name"] if proj else {"tip": "home-buying tip", "testimonial": "buyer story"}.get(c["kind"], "")
         if c["format"] != "story" and cfg()["auto_publish"] and publishing_ready():
             r = publish(c["id"])
             msg = (f"✅ Posted today's {name} {c['kind']} to Facebook/Instagram." if r["ok"]
@@ -698,7 +697,7 @@ def weekly_pack(max_projects: int = 3) -> dict:
     from .team import base_url
     s = get_settings()
     picks = candidates()[:max_projects]
-    if not picks:
+    if not picks and not rera_for(""):
         return {"ok": False, "projects": 0}
     week = s.now().strftime("%G-W%V")
     angles = list(ANGLES)
@@ -709,9 +708,301 @@ def weekly_pack(max_projects: int = 3) -> dict:
         if r["ok"]:
             made += len(r["ids"])
             names.append(p["name"])
+    topics = list(TIP_TOPICS)
+    t = create_tip(topics[start % len(topics)], ("feed", "story"), pack=week)
+    if t["ok"]:
+        made += len(t["ids"])
+        names.append("1 home-buying tip")
+    waiting = db.q1("SELECT COUNT(*) n FROM leads WHERE stage = 'booked'")["n"]
+    ask = (" Tip: a short testimonial from a happy buyer (with their OK) is the most trusted post you can make — "
+           "add one under 'Buyer testimonial'." if waiting else "")
     channels.notify_staff(s.owner["phone"], f"🎨 This week's content pack is ready: {made} creatives for "
                                             f"{', '.join(names)}. Pick your favourites (about 10 minutes): "
-                                            f"{base_url()}/studio")
+                                            f"{base_url()}/studio{ask}")
     return {"ok": True, "projects": len(picks), "creatives": made, "week": week}
 
 
+
+
+# ------------------------------------------------------------------ tips and testimonials
+
+TIP_TOPICS = {
+    "rera_check": "How to check a project on the TN RERA website before you book",
+    "carpet_area": "Carpet area vs built-up vs super built-up area: what you actually get",
+    "hidden_costs": "Costs beyond the flat price: registration, stamp duty, GST, maintenance deposit, car park",
+    "loan_preapproval": "Why a pre-approved home loan makes buying faster and negotiation easier",
+    "emi_planning": "Planning your EMI comfortably: down payment, tenure and keeping a safety buffer",
+    "site_visit_checklist": "What to check on a site visit: light, ventilation, water, approach road, construction quality",
+    "documents": "Documents to ask for before booking: approvals, title, RERA certificate, agreement draft",
+    "ready_vs_uc": "Ready-to-move vs under-construction: honest pros and cons",
+    "resale_vs_new": "Buying new from a builder vs resale: what changes",
+    "nri_buying": "Buying a home in Chennai from abroad (NRI): the basic steps",
+}
+TIP_SCHEMA = {
+    "type": "object",
+    "properties": {"headline": {"type": "string"}, "points": {"type": "array", "items": {"type": "string"}},
+                   "caption": {"type": "string"}, "hashtags": {"type": "array", "items": {"type": "string"}}},
+    "required": ["headline", "points", "caption", "hashtags"], "additionalProperties": False,
+}
+NUMBERS = re.compile(r"\d+(\.\d+)?\s?(%|percent|lakh|L\b|cr|crore|years?|months?)|₹", re.I)
+
+
+def write_tip(topic: str, brief: str = "") -> dict:
+    from .agent import get_client
+    s = get_settings()
+    prompt = f"""Write a short home-buying tip poster for families buying a flat in {s.business.get('city') or 'Chennai'},
+from {s.business['name']}, a RERA-registered property advisor.
+
+<topic>{TIP_TOPICS.get(topic, topic)}</topic>
+<owner_brief>{brief or 'none'}</owner_brief>
+
+- headline: at most 7 words, plain and useful (e.g. "5 checks before you pay the advance").
+- points: 4 points, each at most 12 words, practical and correct for India.
+- caption: 2–3 friendly lines ending with "Questions? WhatsApp us — happy to help, no pressure."
+- hashtags: 5–8 relevant ones.
+Rules: general, accurate information only. Do not quote specific tax rates, stamp-duty percentages, interest rates or
+legal limits (they change and differ by case); say "check the current rate" instead. No promises, no project names,
+no prices. This is not legal or financial advice."""
+    resp = get_client().beta.messages.create(
+        model=s.agent.get("model", "claude-opus-5-5"), max_tokens=2000, thinking={"type": "adaptive"},
+        output_config={"effort": "medium", "format": {"type": "json_schema", "schema": TIP_SCHEMA}},
+        betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+        messages=[{"role": "user", "content": prompt}])
+    if resp.stop_reason == "refusal":
+        raise RuntimeError("The model declined to write this tip.")
+    data = json.loads(next(b.text for b in resp.content if b.type == "text"))
+    if not data.get("points"):
+        raise RuntimeError("No tip points returned.")
+    return data
+
+
+FALLBACK_TIPS = {
+    "site_visit_checklist": ("What to check on a site visit", ["Morning light and cross-ventilation in every room",
+                             "Water source and quality", "Approach road in the rainy season",
+                             "Ask to see the RERA certificate and approvals"]),
+}
+
+
+def fallback_tip(topic: str) -> dict:
+    hl, pts = FALLBACK_TIPS.get(topic, FALLBACK_TIPS["site_visit_checklist"])
+    return {"headline": hl, "points": pts, "caption": "Questions? WhatsApp us — happy to help, no pressure.",
+            "hashtags": ["#ChennaiHomes", "#HomeBuyingTips"], "fallback": True}
+
+
+def general_footer(extra: str = "") -> str:
+    s = get_settings()
+    return (f"{s.business['name']} · RERA agent: {rera_for('') or '—'} · {extra}General information only, not legal "
+            f"or financial advice; check current rules and rates with your bank or lawyer.")
+
+
+def _base_canvas(fmt: str, theme: dict, photo: str | None = None, shade: float = 0.0) -> Image.Image:
+    W, H = FORMATS[fmt]
+    img = Image.new("RGBA", (W, H), theme["bg"] + (255,))
+    pic = None
+    if photo:
+        try:
+            pic = ImageOps.exif_transpose(Image.open(photo)).convert("RGB")
+        except Exception:  # noqa: BLE001
+            pic = None
+    img.paste(ImageOps.fit(pic, (W, H)) if pic else _gradient((W, H), theme["bg2"], theme["bg"]), (0, 0))
+    if pic and shade:
+        img.alpha_composite(Image.new("RGBA", (W, H), (8, 10, 16, int(255 * shade))))
+    return img
+
+
+def _brand_and_footer(img: Image.Image, fmt: str, theme: dict, tag: str, footer: str, light: bool) -> int:
+    W, H = img.size
+    pad = 64
+    d = ImageDraw.Draw(img)
+    col = (255, 255, 255) if light else theme["text"]
+    d.text((pad, 58), get_settings().business["name"].upper(), font=font(34, True), fill=col)
+    if tag:
+        tf = font(26, True)
+        tw = d.textlength(tag, font=tf)
+        d.rounded_rectangle((W - pad - tw - 40, 50, W - pad, 102), radius=26, fill=theme["accent"])
+        d.text((W - pad - tw - 20, 62), tag, font=tf, fill=theme["on_accent"])
+    ff = font(22 if fmt == "feed" else 24)
+    lines = _wrap(d, footer, ff, W - 2 * pad)[:4]
+    fh = len(lines) * 30 + 36
+    img.alpha_composite(Image.new("RGBA", (W, fh), (0, 0, 0, 120) if light else theme["bg2"] + (255,)), (0, H - fh))
+    d = ImageDraw.Draw(img)
+    for i, ln in enumerate(lines):
+        d.text((pad, H - fh + 18 + i * 30), ln, font=ff, fill=(228, 232, 240) if light else theme["sub"])
+    return H - fh
+
+
+def render_tip(tip: dict, fmt: str, theme: dict) -> Image.Image:
+    img = _base_canvas(fmt, theme)
+    light = theme["name"] != "Ivory & terracotta"
+    ftop = _brand_and_footer(img, fmt, theme, "HOME-BUYING TIP", general_footer(), light)
+    W, H = img.size
+    pad, width = 64, W - 128
+    d = ImageDraw.Draw(img)
+    main = (255, 255, 255) if light else theme["text"]
+    story = fmt == "story"
+    hf, hl, hs = _fit(d, tip.get("headline", ""), width, 3, 92 if story else 80, 52)
+    pf = font(40 if story else 36)
+    lh = 52 if story else 46
+    pts = [_wrap(d, pt, pf, width - 90)[:3] for pt in (tip.get("points") or [])[:5]]
+    total = len(hl) * int(hs * 1.12) + 40 + sum(len(x) * lh + 28 for x in pts)
+    top, bottom = 170, ftop - 150
+    y = max(top, top + (bottom - top - total) // 2)
+    for ln in hl:
+        d.text((pad, y), ln, font=hf, fill=main)
+        y += int(hs * 1.12)
+    y += 40
+    for i, lines in enumerate(pts, 1):
+        need = len(lines) * lh + 28
+        if y + need > ftop - 150:
+            break
+        d.ellipse((pad, y, pad + 60, y + 60), fill=theme["accent"])
+        num = str(i)
+        nf = font(32, True)
+        d.text((pad + 30 - d.textlength(num, font=nf) / 2, y + 12), num, font=nf, fill=theme["on_accent"])
+        for j, ln in enumerate(lines):
+            d.text((pad + 90, y + 8 + j * lh), ln, font=pf, fill=main)
+        y += need
+    cta = f"Questions? WhatsApp {cta_phone()}"
+    cf = font(32, True)
+    cw = min(d.textlength(cta, font=cf) + 56, width)
+    y = ftop - 120
+    d.rounded_rectangle((pad, y, pad + cw, y + 72), radius=36, fill=theme["accent"])
+    d.text((pad + 28, y + 18), cta, font=cf, fill=theme["on_accent"])
+    return img.convert("RGB")
+
+
+def create_tip(topic: str, formats=("feed", "story"), brief: str = "", pack: str = "") -> dict:
+    from .team import base_url
+    if not rera_for(""):
+        return {"ok": False, "error": "Add your RERA agent number in Settings → Company first."}
+    try:
+        tip = write_tip(topic, brief)
+    except Exception as e:  # noqa: BLE001
+        db.audit(None, "system", "studio_copy_fallback", str(e)[:200])
+        tip = fallback_tip(topic)
+    warn = []
+    text = " ".join([tip.get("headline", ""), *tip.get("points", [])])
+    if NUMBERS.search(text):
+        warn.append("Contains numbers or rates — check they are current and correct")
+    if RISKY.search(text):
+        warn.append(f"Claim to check: \"{RISKY.search(text).group(0)}\"")
+    tags = " ".join(h if h.startswith("#") else f"#{h}" for h in (tip.get("hashtags") or [])[:8])
+    caption = "\n".join(x for x in [tip.get("caption", "").strip(), f"📲 WhatsApp {cta_phone()} · "
+                                     f"{base_url()}/enquire?src=instagram&c=STUDIO-TIP", tags, general_footer()] if x)
+    ids = []
+    for fmt in formats:
+        for i, theme in enumerate((THEMES[0], THEMES[2])):
+            name = _save(render_tip(tip, fmt, theme), f"tip-{topic}-{fmt}-{i + 1}")
+            ids.append(db.insert("creatives", {
+                "project_id": None, "kind": "tip", "format": fmt, "design": f"tip · {theme['name']}", "angle": topic,
+                "filename": name, "caption": caption, "copy": json.dumps({**tip, "warnings": warn}, ensure_ascii=False),
+                "pack": pack, "status": "draft", "created_at": db.now_iso()}))
+    return {"ok": True, "ids": ids, "fallback": bool(tip.get("fallback"))}
+
+
+def render_testimonial(t: dict, fmt: str, theme: dict, photo: str | None, proj: dict | None) -> Image.Image:
+    img = _base_canvas(fmt, theme, photo, shade=0.62)
+    light = bool(photo) or theme["name"] != "Ivory & terracotta"
+    where = f"{proj['name']}, {proj['locality'] or proj['city'] or ''}" if proj else ""
+    agent = rera_for(proj["city"]) if proj else rera_for("")
+    footer = (f"Shared with the buyer's written permission; one buyer's experience. "
+              + (f"Project RERA: {proj['rera'] or '—'} · " if proj else "")
+              + f"{get_settings().business['name']} · RERA agent: {agent or '—'}")
+    ftop = _brand_and_footer(img, fmt, theme, "HAPPY HOMEOWNER", footer, light)
+    W, H = img.size
+    pad, width = 64, W - 128
+    d = ImageDraw.Draw(img)
+    main = (255, 255, 255) if light else theme["text"]
+    story = fmt == "story"
+    qf, ql, qs = _fit(d, t["quote"], width, 8, 64 if story else 56, 36, bold=False)
+    total = 230 + len(ql) * int(qs * 1.3) + 30 + 100
+    top = 150
+    y0 = max(top, top + (ftop - 40 - top - total) // 2)
+    d.text((pad - 6, y0), "“", font=font(220, True), fill=theme["accent"])
+    y = y0 + 230
+    for ln in ql:
+        d.text((pad, y), ln, font=qf, fill=main)
+        y += int(qs * 1.3)
+    y += 30
+    d.text((pad, y), f"— {t['name']}", font=font(40, True), fill=theme["accent"])
+    if where:
+        d.text((pad, y + 56), where, font=font(32), fill=(225, 230, 238) if light else theme["sub"])
+    return img.convert("RGB")
+
+
+def create_testimonial(quote: str, name: str, consent: bool, project_id: int | None = None,
+                       photo_bytes: bytes | None = None, formats=("feed", "story")) -> dict:
+    """The buyer's own words, never rewritten by the AI. Needs their written consent."""
+    from .team import base_url
+    quote = " ".join((quote or "").split()).strip().strip('"“”')
+    name = " ".join((name or "").split())
+    if not consent:
+        return {"ok": False, "error": "Tick the consent box: the buyer must agree in writing (WhatsApp or email)."}
+    if len(quote) < 15 or not name:
+        return {"ok": False, "error": "Enter the buyer's words (at least a sentence) and how they want to be named."}
+    if len(quote) > 320:
+        return {"ok": False, "error": "Keep it under 320 characters — ask the buyer which part to use."}
+    proj = inventory.get_project(project_id) if project_id else None
+    photo = None
+    if photo_bytes:
+        photo = str(creative_dir() / f"{db.new_token()}_buyer.jpg")
+        try:
+            ImageOps.exif_transpose(Image.open(__import__("io").BytesIO(photo_bytes))).convert("RGB").save(photo, quality=90)
+        except Exception:  # noqa: BLE001
+            return {"ok": False, "error": "The photo couldn't be read — use a JPG or PNG."}
+    elif proj:
+        photos = photo_paths(proj)
+        photo = photos[0] if photos else None
+    t = {"quote": quote, "name": name, "consent_at": db.now_iso(), "consent": "buyer agreed in writing",
+         "warnings": []}
+    caption = "\n".join(x for x in [
+        f"What our buyers say: “{quote}” — {name}", proj and f"{proj['name']}, {proj['locality'] or proj['city']}",
+        f"📲 Looking for your home? WhatsApp {cta_phone()} · {base_url()}/enquire?src=instagram&c=STUDIO-REVIEW",
+        "#HappyHomeowner #ChennaiHomes",
+        f"Shared with the buyer's permission. {get_settings().business['name']} · RERA agent: {rera_for(proj['city'] if proj else '') or '—'}"]
+        if x)
+    ids = []
+    for fmt in formats:
+        for i, theme in enumerate((THEMES[0], THEMES[1])):
+            fname = _save(render_testimonial(t, fmt, theme, photo, proj), f"testimonial-{fmt}-{i + 1}")
+            ids.append(db.insert("creatives", {
+                "project_id": proj["id"] if proj else None, "kind": "testimonial", "format": fmt,
+                "design": f"testimonial · {theme['name']}", "angle": "testimonial", "filename": fname,
+                "caption": caption, "copy": json.dumps(t, ensure_ascii=False), "pack": "", "status": "draft",
+                "created_at": db.now_iso()}))
+    db.audit(None, "owner", "testimonial_added", json.dumps({"name": name, "consent_at": t["consent_at"]}))
+    return {"ok": True, "ids": ids}
+
+
+def kind_blockers(c: dict) -> list[str]:
+    if c["kind"] == "tip":
+        return [] if rera_for("") else ["Your RERA agent number missing (Settings → Company)"]
+    proj = inventory.get_project(c["project_id"]) if c["project_id"] else None
+    if c["kind"] == "testimonial":
+        t = json.loads(c["copy"] or "{}")
+        out = [] if t.get("consent_at") else ["No buyer consent recorded"]
+        return out + (blockers(proj) if proj else ([] if rera_for("") else ["Your RERA agent number missing"]))
+    return blockers(proj) if proj else ["Project deleted"]
+
+
+def testimonial_asks() -> int:
+    """7 days after a booking is paid, remind the salesperson to ask that happy buyer for 2 lines (with consent)."""
+    from .team import rm_for
+    s = get_settings()
+    cutoff = (s.now() - timedelta(days=7)).isoformat()
+    since = (s.now() - timedelta(days=30)).isoformat()
+    n = 0
+    for b in db.q("SELECT b.lead_id FROM bookings b JOIN leads l ON l.id = b.lead_id WHERE b.status = 'paid' AND "
+                  "b.paid_at <= ? AND b.paid_at >= ? AND l.campaign IS NOT 'test' AND l.opted_out = 0", (cutoff, since)):
+        if db.q1("SELECT id FROM audit WHERE action = 'testimonial_ask' AND lead_id = ?", (b["lead_id"],)):
+            continue
+        lead = db.get_lead(b["lead_id"])
+        rm = rm_for(lead)
+        msg = (f"🌟 {rm.get('name', '')}, {lead['name']} booked a week ago. When you next speak, ask kindly: “Could you "
+               f"share 2 lines about your experience with us? May we post it with your first name?” If they agree in "
+               f"writing, send the words to {s.owner.get('name') or 'management'} for the Marketing Studio.")
+        if rm.get("phone"):
+            channels.notify_staff(rm["phone"], msg)
+        db.audit(b["lead_id"], "system", "testimonial_ask", "")
+        n += 1
+    return n

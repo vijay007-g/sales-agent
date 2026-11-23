@@ -16,7 +16,7 @@ CR = 10_000_000  # one crore in rupees
 
 # year, bookings, total sales value (₹ Cr), of which own development (₹ Cr), the milestone that year must deliver
 DEFAULT_PLAN = [
-    (1, 90, 80, 0, "Chennai first: 8–10 bookings a month by Q4; Bangalore from Q2 with a hired city lead"),
+    (1, 90, 80, 0, "Two cities, lean team: 8–10 bookings a month by Q4; own Chennai project registered and selling"),
     (2, 300, 280, 0, "Both cities running; first exclusive mandates; referrals 15% of bookings"),
     (3, 900, 850, 0, "Demand book of 5,000+ qualified buyers; first joint development (JDA) signed"),
     (4, 1700, 1700, 0, "Third city; first own JDA project launched with pre-sold expressions of interest"),

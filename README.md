@@ -130,6 +130,29 @@ Presets: **Best** (top model everywhere — default), **Balanced** (Sonnet 5.5 f
 Whatever is chosen, key moments always use the top model: price / discount / booking / payment talk, complaints,
 post-visit strategy, management decisions and hot buyers. Reports → AI usage shows calls and cost per model.
 
+## Marketing Studio (Marketing ▾ → Marketing Studio): AI marketing, no marketing hire
+
+- **Posters:** Claude writes 3 copy variants per project and angle (ready to move, location, lifestyle, value,
+  family). The studio lays them over the builder's **real photos** in 3 designs, as feed posts (1080×1350) and
+  stories / WhatsApp status (1080×1920).
+- **Reels:** 15–20 s video slideshows from project photos, with captions and an end card.
+- **Compliance:**
+  - prices come from Inventory, never from the AI;
+  - every creative shows the project RERA number, your agent RERA number, "marketed by" and a price footnote;
+  - risky claims ("guaranteed", "best", AI-written prices) are flagged;
+  - partner projects can't be approved until the builder's written permission is marked;
+  - no AI-generated building images.
+- **Workflow:**
+  - Monday 08:00, a weekly pack is drafted (3 projects × feed + story + 1 reel) and you get a WhatsApp;
+  - you approve the best designs;
+  - posts are scheduled at one feed post and one story a day.
+- **At post time:**
+  - auto-posted to Facebook/Instagram if `META_PAGE_ID`, `META_PAGE_TOKEN` (and `META_IG_USER_ID`) are set and
+    `marketing.auto_publish: true`;
+  - otherwise you get a WhatsApp with the image and caption to post;
+  - stories also go to the salespeople for their WhatsApp status.
+- **Settings:** `marketing: {weekly_pack, auto_publish, post_time, cta_phone}` in Settings → Advanced.
+
 ## Weekly builder reports (Sales ▾ → Builder weekly reports)
 
 Every Wednesday at 10:00, each partner builder with activity gets a report by WhatsApp and email:

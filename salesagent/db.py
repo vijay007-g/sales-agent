@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS inv_projects (
     commission_type TEXT, commission_value REAL,
     slug TEXT, gst_pct REAL, stamp_duty_pct REAL, registration_pct REAL, other_charges TEXT,
     is_sample INTEGER DEFAULT 0,
+    marketing_ok INTEGER DEFAULT 0,
     active INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT
 );
 
@@ -185,6 +186,15 @@ CREATE TABLE IF NOT EXISTS campaigns (
 CREATE TABLE IF NOT EXISTS audit (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id INTEGER, actor TEXT, action TEXT, detail TEXT, created_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS creatives (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id INTEGER, kind TEXT, format TEXT, design TEXT, angle TEXT,
+    filename TEXT, caption TEXT, copy TEXT, pack TEXT,
+    status TEXT DEFAULT 'draft',
+    post_at TEXT, approved_at TEXT, published_at TEXT, publish_result TEXT,
+    created_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS usage (

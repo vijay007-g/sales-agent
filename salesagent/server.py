@@ -41,7 +41,9 @@ def _include_routers() -> None:
     from .web_inventory import router as inventory_router
     from .web_portals import router as portals_router
     from .web_public import router as public_router
+    from .web_studio import router as studio_router
     app.include_router(inventory_router)
+    app.include_router(studio_router)
     app.include_router(public_router)
     app.include_router(portals_router)
 
@@ -274,7 +276,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/growth">10-yr plan</a>
 <details class="nav"><summary>Sales ▾</summary><div><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
 <a href="/registrations">Builder registrations</a><a href="/builder-reports">Builder weekly reports</a></div></details>
-<details class="nav"><summary>Marketing ▾</summary><div><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
+<details class="nav"><summary>Marketing ▾</summary><div><a href="/studio">Marketing Studio</a><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
 <a href="/reports">Reports</a><a href="/insights">Learning</a></div></details>
 <details class="nav"><summary>Admin ▾</summary><div><a href="/team">Team</a><a href="/settings">Settings</a>
 {'<a href="/test">Test</a><a href="/test/outbox">Outbox</a>' if test_mode() else ''}<a href="/backup.zip">Download backup</a></div></details>

@@ -151,6 +151,17 @@ def tick() -> dict:
         except Exception:  # noqa: BLE001 - never stop the clock for a report problem
             log.exception("builder reports failed")
 
+    # 6c. Marketing Studio: Monday 08:00 weekly content pack; approved posts go out at their scheduled time
+    from . import studio
+    try:
+        if now.weekday() == 0 and now.hour >= 8 and studio.cfg()["weekly_pack"] and not _sent_today("studio_pack"):
+            db.audit(None, "system", "studio_pack", "")
+            stats["studio_pack"] = studio.weekly_pack()
+        if not quiet:
+            stats["studio_posted"] = studio.post_due()
+    except Exception:  # noqa: BLE001 - never stop the clock for a marketing problem
+        log.exception("studio job failed")
+
     # 7. morning digest for the owner
     if now.time() >= time(9, 0) and not _sent_today("digest"):
         channels.notify_staff(s.owner["phone"], digest())

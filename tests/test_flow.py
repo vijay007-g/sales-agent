@@ -1801,3 +1801,89 @@ def test_weekly_builder_report(fresh, monkeypatch):
     monkeypatch.setattr(s, "raw", {**s.raw, "builder_reports": {"mode": "auto"}})
     assert br.weekly_job()["sent"] == 1
     assert all(not b["is_own"] and not b["is_sample"] for b in br.builders())
+
+
+STUDIO_COPY = {"variants": [{"headline": "Lake views near ITPL", "subline": "Ready 2 BHK homes in Whitefield",
+                             "bullets": ["Near ITPL", "Lake view", "Ready to move"], "tag": "Ready to move",
+                             "cta": "WhatsApp for site visit"},
+                            {"headline": "Guaranteed returns here", "subline": "Only ₹45 L", "bullets": ["Lake view"],
+                             "tag": "Hot", "cta": "Book a visit"},
+                            {"headline": "Home before the new school year", "subline": "Move in this month",
+                             "bullets": [], "tag": "Family", "cta": "WhatsApp us"}],
+               "caption": "Lake views, ready homes.", "hashtags": ["BangaloreHomes", "#Whitefield"],
+               "reel_lines": ["Wake up to the lake", "Ten minutes to ITPL", "Ready to move", "Visit this weekend"]}
+
+
+def test_marketing_studio_posters_compliance_and_posting(fresh, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from salesagent import studio
+    from salesagent.server import app
+    monkeypatch.setattr(studio, "DATA_DIR", tmp_path)
+    s = get_settings()
+    monkeypatch.setattr(s, "raw", {**s.raw, "business": {**s.business, "rera_by_city": "Bangalore: PRM/KA/RERA/1"}})
+    p = _partner_setup()
+    fresh.fake.json_replies.append(STUDIO_COPY)
+    r = studio.create(p["id"], ("feed", "story"), "ready", reel=True)
+    assert r["ok"] and len(r["ids"]) == 7 and not r["reel_error"], r
+    rows = db.q("SELECT * FROM creatives ORDER BY id")
+    assert {x["format"] for x in rows} == {"feed", "story", "reel"}
+    assert all((tmp_path / "creatives" / x["filename"]).exists() for x in rows)
+    from PIL import Image
+    assert Image.open(tmp_path / "creatives" / rows[0]["filename"]).size == (1080, 1350)
+    assert Image.open(tmp_path / "creatives" / rows[3]["filename"]).size == (1080, 1920)
+    cap = rows[0]["caption"]
+    assert "Project RERA: KA/1" in cap and "PRM/KA/RERA/1" in cap and "/p/" in cap and "₹88 L*" in cap
+    # the AI never writes prices; risky claims are flagged
+    prompt = fresh.fake.calls[-1]["messages"][0]["content"]
+    assert "never write any price" in prompt and "8200000" not in prompt     # no floor prices to the AI
+    w = json.loads(rows[1]["copy"])["warnings"]
+    assert any("Guaranteed" in x for x in w) and any("price" in x for x in w)
+    # partner project: no approval until the builder's permission is recorded
+    assert "permission" in studio.approve(rows[0]["id"])["error"]
+    db.update("inv_projects", p["id"], {"marketing_ok": 1})
+    a1, a2 = studio.approve(rows[0]["id"]), studio.approve(rows[2]["id"])
+    assert a1["ok"] and a2["ok"] and a1["post_at"][:10] != a2["post_at"][:10]         # one feed post a day
+    st = studio.approve(rows[3]["id"])
+    assert st["ok"] and st["post_at"][:10] == a1["post_at"][:10]                       # stories have their own lane
+    # not connected to Meta: at post time you get the image + caption on WhatsApp; stories go to the salespeople
+    past = (s.now() - timedelta(minutes=1)).isoformat()
+    for cid in (rows[0]["id"], rows[3]["id"]):
+        db.update("creatives", cid, {"post_at": past})
+    fresh.sent.clear()
+    assert studio.post_due() == 2
+    assert any("Time to post" in t and "Project RERA" in t for t in to(fresh, owner_phone()))
+    assert any("WhatsApp status" in t for t in to(fresh, rm_phone()))
+    assert studio.get(rows[0]["id"])["status"] == "reminded"
+    # connected + auto_publish: feed posts go to Facebook and Instagram
+    monkeypatch.setenv("META_PAGE_ID", "123")
+    monkeypatch.setenv("META_PAGE_TOKEN", "tok")
+    monkeypatch.setenv("META_IG_USER_ID", "456")
+    calls = []
+    monkeypatch.setattr(studio, "_graph_post", lambda path, data: calls.append(path) or {"id": f"id-{len(calls)}"})
+    monkeypatch.setattr(s, "raw", {**s.raw, "marketing": {"auto_publish": True}})
+    db.update("creatives", rows[2]["id"], {"post_at": past})
+    assert studio.post_due() == 1
+    assert calls == ["123/photos", "456/media", "456/media_publish"]
+    assert studio.get(rows[2]["id"])["status"] == "published"
+    # dashboard + public file
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        page = c.get("/studio", auth=("o", "pw"))
+        assert page.status_code == 200 and "Lakeview Heights" in page.text
+        assert c.get("/studio?show=scheduled", auth=("o", "pw")).status_code == 200
+        assert c.get(f"/creative/{rows[0]['filename']}").status_code == 200
+        assert c.get("/creative/nope.jpg").status_code == 404
+        assert c.get("/studio").status_code == 401
+
+
+def test_studio_needs_rera_and_survives_ai_outage(fresh, monkeypatch, tmp_path):
+    from salesagent import studio
+    monkeypatch.setattr(studio, "DATA_DIR", tmp_path)
+    p = _partner_setup()
+    db.update("inv_projects", p["id"], {"rera": ""})
+    assert "RERA" in studio.create(p["id"])["error"]
+    db.update("inv_projects", p["id"], {"rera": "KA/1"})
+    r = studio.create(p["id"], ("feed",))            # no JSON reply queued → the AI call fails → plain copy
+    assert r["ok"] and r["fallback"] and len(r["ids"]) == 3
+    assert studio.weekly_pack()["ok"] is False        # partner project without permission isn't picked

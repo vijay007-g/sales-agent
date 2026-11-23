@@ -157,6 +157,14 @@ post-visit strategy, management decisions and hot buyers. Reports → AI usage s
   Seven days after a booking is paid, the salesperson is reminded to ask for 2 lines.
 - **Settings:** `marketing: {weekly_pack, auto_publish, post_time, cta_phone}` in Settings → Advanced.
 
+## Cash plan (Admin ▾ → Cash plan)
+
+- **What to record:** big payments you've committed to (land, construction) and the money expected to cover them
+  (cash in bank, loans, sales advances, receivables), each marked confirmed, likely or possible.
+- **Coverage:** each payment shows its running balance three ways: confirmed money only, plus likely, plus possible.
+  Gaps are visible weeks ahead.
+- **Reminders:** WhatsApp 30, 14, 7, 3 and 1 days before each payment; the morning digest shows the next one.
+
 ## Weekly builder reports (Sales ▾ → Builder weekly reports)
 
 Every Wednesday at 10:00, each partner builder with activity gets a report by WhatsApp and email:

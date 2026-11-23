@@ -197,6 +197,16 @@ CREATE TABLE IF NOT EXISTS creatives (
     created_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS cash_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT, title TEXT, party TEXT, project TEXT,
+    amount INTEGER, due_date TEXT,
+    confidence TEXT DEFAULT 'confirmed',
+    status TEXT DEFAULT 'open',
+    notes TEXT, reminders TEXT DEFAULT '[]',
+    created_at TEXT, done_at TEXT
+);
+
 CREATE TABLE IF NOT EXISTS usage (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id INTEGER, event TEXT, model TEXT, input_tokens INTEGER, output_tokens INTEGER,

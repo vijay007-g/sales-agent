@@ -278,7 +278,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <a href="/registrations">Builder registrations</a><a href="/builder-reports">Builder weekly reports</a></div></details>
 <details class="nav"><summary>Marketing ▾</summary><div><a href="/studio">Marketing Studio</a><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
 <a href="/reports">Reports</a><a href="/insights">Learning</a></div></details>
-<details class="nav"><summary>Admin ▾</summary><div><a href="/team">Team</a><a href="/settings">Settings</a>
+<details class="nav"><summary>Admin ▾</summary><div><a href="/cash">Cash plan</a><a href="/team">Team</a><a href="/settings">Settings</a>
 {'<a href="/test">Test</a><a href="/test/outbox">Outbox</a>' if test_mode() else ''}<a href="/backup.zip">Download backup</a></div></details>
 </header>
 <main>{_storage_banner()}{'<div class="notice">TEST MODE — nothing is sent to real customers. Messages appear in the conversation and in <a href="/test/outbox">Outbox</a>.</div>' if test_mode() else ''}{body}</main></body></html>""")
@@ -709,6 +709,97 @@ def builder_report_send_all(_: str = Depends(owner_auth)):
     bad = [r["error"] for r in results if not r["ok"]]
     msg = (f"Sent to {len(ok)}: {', '.join(ok)}." if ok else "Nothing sent.") + (" " + " ".join(bad) if bad else "")
     return RedirectResponse(f"/builder-reports?msg={quote(msg)}", status_code=303)
+
+
+@app.get("/cash", response_class=HTMLResponse)
+def cash_page(msg: str = "", _: str = Depends(owner_auth)):
+    from . import cash
+    m = pricing.fmt_money
+    today = get_settings().now().date().isoformat()
+    colour = {"covered": "#eef8f1", "likely": "#fff8e6", "possible": "#fff1e0", "gap": "#ffe9e6"}
+    label = {"covered": "✅ Covered (confirmed money)", "likely": "⚠️ Needs the 'likely' money",
+             "possible": "🟠 Depends on 'possible' money", "gap": "🔴 GAP even if everything comes in"}
+    rows = ""
+    for r in cash.coverage():
+        rows += (f"<tr style='background:{colour[r['state']]}'><td>{escape(r['due_date'])}<br><small>{r['days_left']} days"
+                 f"</small></td><td><b>{escape(r['title'])}</b><br><small>{escape(r['party'] or '')} "
+                 f"{escape(r['project'] or '')}</small></td><td>{m(r['amount'])}</td>"
+                 + "".join(f"<td>{m(r[l]) if r[l] >= 0 else '<b style=color:#b3261e>−' + m(-r[l]) + '</b>'}</td>"
+                           for l in cash.LEVELS)
+                 + f"<td>{label[r['state']]}</td><td><form method='post' action='/cash/{r['id']}/done'><button "
+                   f"class='small'>Paid</button></form></td></tr>")
+
+    def table(kind):
+        trs = ""
+        for it in cash.items(kind):
+            act = ("" if it["status"] != "open" else
+                   f"<form method='post' action='/cash/{it['id']}/done' style='display:inline'><button class='small'>"
+                   f"{'Received' if kind == 'source' else 'Paid'}</button></form> "
+                   f"<form method='post' action='/cash/{it['id']}/drop' style='display:inline'><button class='small red'>"
+                   f"Drop</button></form>")
+            trs += (f"<tr><td>{escape(it['due_date'])}</td><td>{escape(it['title'])}<br><small>{escape(it['party'] or '')}"
+                    f" {escape(it['notes'] or '')}</small></td><td>{m(it['amount'])}</td>"
+                    + (f"<td>{escape(it['confidence'])}</td>" if kind == "source" else "")
+                    + f"<td>{escape(it['status'])}</td><td>{act}</td></tr>")
+        return trs or f"<tr><td colspan=6>None yet.</td></tr>"
+
+    note = f'<div class="notice">{escape(msg)}</div>' if msg else ""
+    return page("Cash plan", f"""<h2>Cash plan — big payments and how they're covered</h2>{note}
+<div class="card"><p>Add every big payment you've committed to (land, construction) and every source of money you
+expect (cash in bank, loan disbursement, sales advances, receivables), with how sure you are. Each payment shows the
+running balance up to its date: with <b>confirmed</b> money only, plus <b>likely</b>, plus <b>possible</b>. You get WhatsApp
+reminders 30, 14, 7, 3 and 1 days before each payment.</p></div>
+<div class="card"><h3>Upcoming payments</h3><table><tr><th>Due</th><th>Payment</th><th>Amount</th><th>Balance: confirmed</th>
+<th>+ likely</th><th>+ possible</th><th>Status</th><th></th></tr>{rows or '<tr><td colspan=8>No open payments.</td></tr>'}</table></div>
+<div class="cols" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px">
+<div class="card"><h3>Add a payment you must make</h3><form method="post" action="/cash/add">
+<input type="hidden" name="kind" value="commitment">
+<label>What<br><input name="title" required placeholder="Land payment — instalment 1" style="width:100%"></label><br>
+<label>To whom<br><input name="party" placeholder="Landowner"></label>
+<label>Project<br><input name="project" placeholder="Our Chennai project"></label><br>
+<label>Amount<br><input name="amount" required placeholder="2.5Cr or 50L"></label>
+<label>Due date<br><input type="date" name="due_date" required value="{today}"></label><br>
+<label>Notes<br><input name="notes" style="width:100%" placeholder="penalty / clause / agreement ref"></label><br>
+<button>Add payment</button></form></div>
+<div class="card"><h3>Add money you expect</h3><form method="post" action="/cash/add">
+<input type="hidden" name="kind" value="source">
+<label>Source<br><input name="title" required placeholder="Cash in bank today / LAP from HDFC / flat sale advances" style="width:100%"></label><br>
+<label>From<br><input name="party" placeholder="Bank / buyer / person"></label>
+<label>Amount<br><input name="amount" required placeholder="1.2Cr or 40L"></label><br>
+<label>Expected date<br><input type="date" name="due_date" required value="{today}"></label>
+<label>How sure?<br><select name="confidence"><option value="confirmed">Confirmed (in hand / sanctioned in writing)</option>
+<option value="likely">Likely (in process)</option><option value="possible">Possible (idea / talking)</option></select></label><br>
+<label>Notes<br><input name="notes" style="width:100%"></label><br><button>Add source</button></form></div></div>
+<div class="card"><h3>All payments</h3><table><tr><th>Date</th><th>Payment</th><th>Amount</th><th>Status</th><th></th></tr>
+{table('commitment')}</table></div>
+<div class="card"><h3>All sources</h3><table><tr><th>Date</th><th>Source</th><th>Amount</th><th>Confidence</th><th>Status</th><th></th></tr>
+{table('source')}</table></div>""")
+
+
+@app.post("/cash/add")
+def cash_add(kind: str = Form(...), title: str = Form(...), amount: str = Form(...), due_date: str = Form(...),
+             party: str = Form(""), project: str = Form(""), confidence: str = Form("confirmed"), notes: str = Form(""),
+             _: str = Depends(owner_auth)):
+    from urllib.parse import quote
+
+    from . import cash
+    amt = events.parse_amount(amount)
+    if not amt or amt < 1000:
+        return RedirectResponse(f"/cash?msg={quote('Enter the amount like 2.5Cr, 50L or 5000000.')}", status_code=303)
+    try:
+        cash.add(kind, title, amt, due_date, party, project, confidence, notes)
+    except ValueError as e:
+        return RedirectResponse(f"/cash?msg={quote(str(e))}", status_code=303)
+    return RedirectResponse(f"/cash?msg={quote(f'Added {title} ({pricing.fmt_money(amt)}).')}", status_code=303)
+
+
+@app.post("/cash/{item_id}/{action}")
+def cash_mark(item_id: int, action: str, _: str = Depends(owner_auth)):
+    from . import cash
+    if action not in ("done", "drop"):
+        return RedirectResponse("/cash", status_code=303)
+    cash.mark(item_id, "done" if action == "done" else "dropped")
+    return RedirectResponse("/cash", status_code=303)
 
 
 @app.get("/growth", response_class=HTMLResponse)

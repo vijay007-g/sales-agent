@@ -165,6 +165,15 @@ def tick() -> dict:
     except Exception:  # noqa: BLE001 - never stop the clock for a marketing problem
         log.exception("studio job failed")
 
+    # 6d. cash plan: reminders before big payments (land, construction)
+    if now.hour >= 9 and not _sent_today("cash_reminders"):
+        db.audit(None, "system", "cash_reminders", "")
+        from . import cash
+        try:
+            stats["cash_reminders"] = cash.reminders()
+        except Exception:  # noqa: BLE001
+            log.exception("cash reminders failed")
+
     # 7. morning digest for the owner
     if now.time() >= time(9, 0) and not _sent_today("digest"):
         channels.notify_staff(s.owner["phone"], digest())
@@ -287,6 +296,13 @@ def digest() -> str:
     disputed = db.q1("SELECT COUNT(*) n FROM registrations WHERE status = 'disputed'")["n"]
     if disputed:
         lines.append(f"⚠️ Disputed client registrations: {disputed}")
+    try:
+        from . import cash
+        c = cash.digest_line()
+        if c:
+            lines.append(c)
+    except Exception:  # noqa: BLE001
+        log.exception("cash digest line failed")
     try:
         from . import growth
         g = growth.digest_line()

@@ -1944,3 +1944,40 @@ def test_testimonial_ask_a_week_after_booking(fresh):
     assert studio.testimonial_asks() == 1
     assert any("2 lines about your experience" in t for t in to(fresh, rm_phone()))
     assert studio.testimonial_asks() == 0                                     # asked once only
+
+
+def test_cash_plan_coverage_reminders_and_page(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import cash, scheduler
+    from salesagent.server import app
+    today = get_settings().now().date()
+    d = lambda n: (today + timedelta(days=n)).isoformat()  # noqa: E731
+    land1 = cash.add("commitment", "Land instalment 1", 25000000, d(38), "Landowner")
+    cash.add("commitment", "Construction start", 5000000, d(69))
+    cash.add("commitment", "Land instalment 2", 5000000, d(97), "Landowner")
+    cash.add("source", "Cash in bank", 9000000, d(0), confidence="confirmed")
+    cash.add("source", "Loan against property", 12000000, d(30), confidence="likely")
+    cash.add("source", "Sale of a flat", 6000000, d(35), confidence="possible")
+    cov = cash.coverage()
+    first = cov[0]
+    assert first["confirmed"] == 9000000 - 25000000 and first["likely"] == -4000000 and first["possible"] == 2000000
+    assert first["state"] == "possible" and cov[2]["state"] == "gap"
+    assert "Land instalment 1" in cash.digest_line() and "short by" in cash.digest_line()
+    # reminders: 30-day milestone not reached yet at 38 days; sent once when it is
+    assert cash.reminders() == 0
+    db.update("cash_items", land1, {"due_date": d(29)})
+    assert cash.reminders() == 1 and cash.reminders() == 0
+    assert any("Payment reminder" in t and "Land instalment 1" in t for t in to(fresh, owner_phone()))
+    # paying it moves it out of the open list; the digest moves on to the next payment
+    cash.mark(land1, "done")
+    assert all(r["id"] != land1 for r in cash.coverage())
+    assert "Construction start" in scheduler.digest()
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        assert "Construction start" in c.get("/cash", auth=("o", "pw")).text
+        r = c.post("/cash/add", data={"kind": "commitment", "title": "Approval fees", "amount": "12L",
+                                      "due_date": d(10)}, auth=("o", "pw"))
+        assert "Added Approval fees" in r.text
+        assert "Enter the amount" in c.post("/cash/add", data={"kind": "source", "title": "x", "amount": "abc",
+                                                              "due_date": d(1)}, auth=("o", "pw")).text

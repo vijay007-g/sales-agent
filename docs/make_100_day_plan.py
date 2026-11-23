@@ -41,7 +41,7 @@ DAYS = [
      "builder-scorecard.csv. Mark which are ready to move or near possession.", "Y", "30-row longlist"),
     ("Paperwork & helpers", "Build the empanelment kit. Have the CA draft a partners' authority letter making you the "
      "sole authorised signatory (your wife signs once). Appoint an accountant (₹5–10k/month) for GST invoices, TDS and "
-     "books.", "YO", "Kit + signed authority + accountant"),
+     "books. No marketing hire: the Marketing Studio (AI) makes the content.", "YO", "Kit + signed authority + accountant"),
     ("Field day 1", "Visit 5 sales offices as a CP. Meet the CP managers and collect their CP policy, price sheet, "
      "brochure and floor plans. Note weekend walk-in traffic.", "Y", "5 CP policies"),
     ("Field day 2", "Visit 5 more, prioritising ready-to-move and near-possession projects (buyers decide faster).",
@@ -54,31 +54,37 @@ DAYS = [
     ("Builder meetings 1–2", "Use the 30-minute agenda. Ask for the agreement draft, current offers and the slow towers. "
      "Max 3 meetings a day.", "Y", "Notes in scorecard"),
     ("Builder meetings 3–4", "Meetings 3–4. Phone-screen 10 salesperson candidates.", "Y", "4 meetings done"),
-    ("Agreements", "Check each agreement against the 12-point checklist, negotiate, and sign the clean ones. Send their "
+    ("Agreements", "Check each agreement against the 12-point checklist, negotiate, and sign the clean ones. In the same "
+     "email ask for: written permission to advertise the project, their photos and renders, and brand rules. Send the "
      "price lists to Claude for the upload file.", "YC", "2 agreements signed"),
     ("Interviews", "Walk-in interviews with role plays (enquiry → visit booking; price objection). Shortlist 2.", "Y",
      "2 finalists"),
-    ("Project learning", "Walk 2 signed projects end to end. Enter 5 highlights and 5 FAQs per project in Inventory.",
-     "Y", "2 projects documented"),
+    ("Project learning + photos", "Walk 2 signed projects end to end. Enter 5 highlights and 5 FAQs per project. Shoot "
+     "10 phone photos each (daylight, landscape: entrance, amenities, sample flat, views) and upload them with the "
+     "builder's renders as kind 'photo' in Inventory.", "Y", "2 projects with photos"),
     ("REVIEW #2 + CA", "With the CA: Pvt Ltd timeline, GST invoice format, TDS under 194H. Send the offer letter to "
      "salesperson #1 (joins 15 Dec).", "YO", "Offer accepted"),
     ("Builder meetings 5–6", "Meetings 5–6.", "Y", "6 meetings in total"),
     ("Portals", "Get quotes from 99acres, MagicBricks and Housing for your Chennai localities only and negotiate a "
      "3-month trial. Set lead forwarding to the leads mailbox.", "Y", "Package chosen"),
-    ("Meta set-up", "Facebook page, Instagram, ad account, lead form with consent. Connect Meta lead ads (Claude "
-     "guides).", "YC", "Test lead in dashboard"),
+    ("Meta set-up", "Facebook Page + Instagram Business account (linked), ad account, lead form with consent. "
+     "Connect Meta lead ads (Claude guides). Use the same logo and Skyline name everywhere.", "YC", "Test lead in dashboard"),
     ("Agreements + inventory", "Sign the next 2 agreements. Put every signed project in Inventory and check its "
-     "landing page.", "YC", "4 projects live"),
+     "landing page. Marketing Studio → mark builder permission for each project that gave it in writing.", "YC",
+     "4 projects live + ready for Studio"),
     ("Warm network", "Personal WhatsApp to about 200 contacts, a LinkedIn post, and the referral reward. Ask each "
-     "contact for one name.", "Y", "200 messages sent"),
-    ("Content", "A freelancer shoots 2 project walk-through videos and photos for ads (with builder permission).", "O",
-     "2 videos"),
-    ("REVIEW #3", "Approve campaigns for the top 3 projects, ready-to-move first, with the RERA number on every ad. "
-     "Margazhi plan: visits now, bookings from Thai.", "Y", "Campaigns approved"),
+     "contact for one name. From today put a Studio story on your WhatsApp status every day.", "Y", "200 messages sent"),
+    ("FIRST STUDIO PACK", "Marketing ▾ → Marketing Studio: create for the top 3 projects (angle 'Ready to move'), feed "
+     "+ story, plus a reel for the best one. Pick the best design of each, check every claim, approve. Daily posting "
+     "starts (19:30).", "YAC", "9+ creatives approved"),
+    ("REVIEW #3", "Approve ad copy (Marketing ▾ → Campaigns) for the top 3 projects and use the approved Studio posters "
+     "and reel as the ad images (3 designs = an A/B/C test). RERA number on every ad. Margazhi plan: visits now, "
+     "bookings from Thai.", "Y", "Ads ready to launch"),
     ("Salesperson #1 joins", "Onboarding: Workflow PDF, portal link, call within 15 minutes, scripts. If Meta has "
-     "verified you: WhatsApp live (CHANNEL_MODE=live) and a test with friends.", "YSC", "Portal opened"),
-    ("ADS LAUNCH", "Meta lead ads + Click-to-WhatsApp at ₹1,500–2,000/day, Chennai only. Portals live. Training "
-     "day 2 at the sites.", "YS", "First 15 leads"),
+     "verified you: WhatsApp live (CHANNEL_MODE=live), a test with friends, and connect Facebook/Instagram auto-posting "
+     "for the Studio (page token; Claude guides).", "YSC", "Portal opened"),
+    ("ADS LAUNCH", "Meta lead ads + Click-to-WhatsApp at ₹1,500–2,000/day, Chennai only, with the 3 Studio designs "
+     "per project as variants. Portals live. Training day 2 at the sites.", "YS", "First 15 leads"),
     ("Shadowing", "The salesperson listens to you on 5 calls, then you listen to theirs. Fix the gaps the same day.",
      "YS", "Certified on 2 projects"),
     ("Bank tie-ups", "Meet 2 home-loan branch managers in your focus markets; they meet buyers before builders do. "
@@ -86,17 +92,19 @@ DAYS = [
     ("First visit weekend", "Free cab pickup; register every buyer before the visit. You attend every visit for the "
      "first 3 weekends.", "YS", "2–4 visits"),
     ("Visits", "Visits; reports filed the same day.", "YS", "Reports in"),
-    ("REVIEW #4", "Check cost per lead, % called within 15 minutes, and lead → visit. Kill the worst ad.", "Y",
+    ("REVIEW #4", "Approve this week's Studio pack (10 min). Check cost per lead, % called within 15 minutes, and lead → visit. Kill the worst ad.", "Y",
      "KPIs logged"),
-    ("Builder offers", "Get year-end offers and payment plans from every builder in writing; add them to Inventory.",
-     "Y", "Offers logged"),
+    ("Builder offers", "Get year-end offers and payment plans from every builder in writing; add them to Inventory. "
+     "Studio: 'Value' angle posters with the approved offer (type it in 'Your idea').", "YA", "Offers logged + posters"),
     ("First builder reports", "Sales ▾ → Builder weekly reports: preview, send. From now on every Wednesday "
      "(15 minutes).", "YA", "Reports sent"),
-    ("Pipeline hygiene", "Every lead has a next step; no call older than 24 hours.", "S", "0 overdue"),
+    ("Pipeline hygiene + Google", "Salesperson: every lead has a next step; no call older than 24 hours. You: create the "
+     "free Google Business Profile for Skyline Realty (office address, photos, phone); post one Studio poster a week "
+     "there.", "SY", "0 overdue · profile live"),
     ("Christmas", "The AI handles replies; you're on call for hot leads only.", "A", "—"),
     ("Visits", "Holiday week: visits run high.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #5", "Enter December spend in Reports. The accountant sets up the invoice template and commission "
+    ("REVIEW #5", "Approve this week's Studio pack (10 min). Enter December spend in Reports. The accountant sets up the invoice template and commission "
      "tracking.", "YO", "December entered"),
     ("Second builder wave", "Call 6 more CP managers; target 8 empanelled by day 50.", "Y", "4 meetings booked"),
     ("Reports + 2027 targets", "Builder reports. Set the 2027 targets and the salesperson's incentive slabs.", "YA",
@@ -106,16 +114,18 @@ DAYS = [
     ("New Year", "Day off.", "", "—"),
     ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #6", "Weekly KPIs; agenda for the wave-2 meetings.", "Y", "Logged"),
+    ("REVIEW #6", "Approve this week's Studio pack (10 min). Weekly KPIs; agenda for the wave-2 meetings.", "Y", "Logged"),
     ("Builder meetings", "Wave-2 meetings (2).", "Y", "2 meetings"),
     ("Reports + meetings", "Builder reports; 2 more meetings.", "YA", "Sent"),
-    ("Referral programme", "₹10–25k voucher per referred booking. Card to every visited buyer and to your network.",
-     "Y", "Referral card live"),
+    ("Referral programme", "₹10–25k voucher per referred booking. Card to every visited buyer and to your network. Ask "
+     "every visited buyer for a Google review.", "Y", "Referral card live"),
     ("Corporate outreach", "Email or LinkedIn 10 HR heads at IT companies near your markets, offering a free "
      "home-buying session in February.", "Y", "2 replies"),
     ("Family second visits", "Bring warm buyers back with the decision maker (spouse, parents).", "YS", "—"),
-    ("Visits", "Visits.", "S", "—"),
-    ("REVIEW #7", "Ad rule: increase only campaigns with cost per visit under ₹5,000.", "Y", "Budget reset"),
+    ("Visits + phone reels", "The salesperson films two 30-second walk-throughs on visits; post them as reels with a "
+     "Studio caption (also on YouTube Shorts).", "S", "2 reels"),
+    ("REVIEW #7", "Ad rule: increase only campaigns with cost per visit under ₹5,000. Studio: make the Pongal/Thai pack "
+     "(builder-approved offers) to post 13–17 Jan.", "Y", "Budget reset · Thai pack approved"),
     ("Booking logistics", "Booking slots at builder offices, builders' payment details, and cost sheets ready for hot "
      "buyers.", "S", "Ready"),
     ("Reports", "Builder reports.", "YA", "Sent"),
@@ -123,9 +133,9 @@ DAYS = [
     ("Thai begins", "Call every hot buyer and fix booking appointments.", "YS", "5+ appointments"),
     ("BOOKING WEEKEND", "Booking visits. Approvals within 1 hour.", "YS", "1–3 bookings"),
     ("BOOKING WEEKEND", "Same as yesterday.", "YS", "—"),
-    ("REVIEW #8", "Verify each booking: registration ACK and invoice date (with the accountant).", "YO", "Verified"),
-    ("Negotiation review", "Which concessions closed? Approve the AI's lessons on the Learning page.", "Y",
-     "Lessons approved"),
+    ("REVIEW #8", "Approve this week's Studio pack (10 min). Verify each booking: registration ACK and invoice date (with the accountant).", "YO", "Verified"),
+    ("Negotiation + content review", "Which concessions closed? Approve the AI's lessons. Reports: which ads and "
+     "Studio angles brought visits (campaign STUDIO / ad codes)? Do more of those.", "Y", "Lessons approved"),
     ("Reports + collections", "Builder reports; collections calendar from the builders' CRM teams.", "YAO",
      "Calendar set"),
     ("Hire #2 decision", "If leads exceed 120/month, post the job ad for salesperson #2.", "Y", "Decision"),
@@ -133,49 +143,52 @@ DAYS = [
      "YC", "Inventory current"),
     ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #9 — DAY-60 CHECK", "Check: 8 builders? 500 leads? 3+ bookings? Fix the biggest miss first.", "Y",
+    ("REVIEW #9 — DAY-60 CHECK", "Approve this week's Studio pack (10 min). Check: 8 builders? 500 leads? 3+ bookings? Fix the biggest miss first.", "Y",
      "Day-60 scorecard"),
     ("Republic Day", "Day off.", "", "—"),
     ("Reports", "Builder reports.", "YA", "Sent"),
     ("Pilot proposal", "Pick the builder with your most visits and slow inventory. Claude drafts the 60-day pilot from "
      "your data.", "YC", "Proposal ready"),
-    ("Ad scale decision", "If cost per booking ≤ 30% of earnings per booking, raise to ₹2,500–3,000/day.", "Y",
-     "Budget set"),
+    ("Ad scale decision", "If cost per booking ≤ 30% of earnings per booking, raise to ₹2,500–3,000/day. Swap in fresh "
+     "Studio designs (ads tire after about 2 weeks).", "Y", "Budget set · new creatives live"),
     ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #10 + January close", "January bookings vs target (4). Union Budget: if housing tax rules change, send "
+    ("REVIEW #10 + January close", "Approve this week's Studio pack (10 min). January bookings vs target (4). Union Budget: if housing tax rules change, send "
      "a buyer message.", "Y", "January closed"),
     ("Pilot pitch", "Meet the sales head and propose the pilot.", "Y", "Agreed or next date"),
     ("Reports + interviews", "Builder reports; interviews for salesperson #2.", "YA", "Sent"),
     ("Bank tie-ups 2", "Meet 2 more home-loan managers and 1 DSA.", "Y", "3 more tie-ups"),
-    ("Corporate session prep", "Confirm the session and ask a builder to co-fund the stall.", "Y", "Date fixed"),
+    ("Corporate session prep", "Confirm the session and ask a builder to co-fund the stall. Studio: posters for the "
+     "company's internal channels and the stall.", "Y", "Date fixed"),
     ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #11", "Weekly KPIs; pilot progress.", "Y", "Logged"),
+    ("REVIEW #11", "Approve this week's Studio pack (10 min). Weekly KPIs; pilot progress.", "Y", "Logged"),
     ("Salesperson #2 offer", "Send the offer (joins 16 Feb) if the threshold is met.", "Y", "Offer accepted"),
     ("Reports + pilot report", "Builder reports, including the pilot's weekly numbers.", "YA", "Sent"),
     ("Corporate session", "Home-buying session with a builder.", "YS", "20+ leads"),
     ("FY-end offers", "Ask builders for their March targets and special offers.", "Y", "Offers logged"),
     ("Visits", "Visits.", "S", "—"),
     ("Visits", "Same as yesterday.", "S", "—"),
-    ("REVIEW #12", "Gate-1 view on the dashboard: the weakest line becomes this fortnight's focus.", "Y", "Gap list"),
+    ("REVIEW #12", "Approve this week's Studio pack (10 min). Gate-1 view on the dashboard: the weakest line becomes this fortnight's focus.", "Y", "Gap list"),
     ("Salesperson #2 joins", "Onboarding and site training.", "YS", "Portal opened"),
     ("Reports", "Builder reports.", "YA", "Sent"),
-    ("Learning review", "Read the AI's lessons and refresh the call scripts.", "Y", "Scripts updated"),
+    ("Learning review", "Read the AI's lessons and refresh the call scripts. Content check: which angles do you approve "
+     "most, and which bring leads? Keep those in the weekly pack.", "Y", "Scripts updated"),
     ("March push prep", "Hot list + financial-year-end offer messaging.", "S", "Hot list"),
     ("BOOKING PUSH", "Visits + booking appointments.", "YS", "—"),
     ("BOOKING PUSH", "Same as yesterday.", "YS", "—"),
-    ("REVIEW #13", "Weekly KPIs.", "Y", "Logged"),
+    ("REVIEW #13", "Approve this week's Studio pack (10 min). Weekly KPIs.", "Y", "Logged"),
     ("Company structure", "With the CA: Pvt Ltd timeline, RERA transfer, and the Karnataka RERA question (page 1).",
      "YO", "Dates fixed"),
     ("Reports + pilot review", "Builder reports; pilot day-30 review meeting.", "YA", "Reviewed"),
     ("Bangalore go / no-go", "Go only if Chennai runs at 6+ bookings a month without you on every call. Model: hire "
      "an experienced Bangalore city lead on salary plus profit share (no equity). Shortlist 10 builders by phone.",
      "Y", "Decision + shortlist"),
-    ("AI preset review", "After 30+ real conversations: keep Best or move to Balanced.", "YC", "Decision"),
+    ("AI preset review", "After 30+ real conversations: keep Best or move to Balanced. If Facebook/Instagram is "
+     "connected, switch Studio auto-posting on (marketing.auto_publish).", "YC", "Decisions made"),
     ("BOOKING WEEKEND", "Booking visits.", "YS", "—"),
     ("BOOKING WEEKEND", "Same as yesterday.", "YS", "—"),
-    ("REVIEW #14 + February close", "February bookings vs target (5).", "Y", "February closed"),
+    ("REVIEW #14 + February close", "Approve this week's Studio pack (10 min). February bookings vs target (5).", "Y", "February closed"),
     ("100-day retrospective", "What worked (channels, builders, scripts) and what to stop.", "Y", "Retro notes"),
     ("Next 100 days", "Q2 targets, hiring, builder tiers and the Bangalore timeline. Send builder reports.", "YA",
      "Plan for days 101–200"),
@@ -217,7 +230,7 @@ html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sky
 <style>{css}</style></head><body>
 
 <!-- ============ PAGE: REVIEW ============ -->
-<div class="page">
+<div class="sect">
 <div class="cover"><h1>Skyline Realty — The Exact Plan (v2, solo founder)</h1><p>Review of the first plan · Overall plan · Channel-partner (CP) playbook · Day-by-day 100-day plan (24 Nov 2026 – 3 Mar 2027) · Chennai first</p></div>
 
 <h2>1. Review of the first 100-day plan: what was unrealistic</h2>
@@ -227,8 +240,8 @@ html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Sky
 Attention splits, travel eats days.</td><td><b>Chennai only for 100 days.</b> Bangalore gets a go/no-go on day 94 and
 starts in April with a hired city lead.</td></tr>
 <tr><td>Your wife ran Bangalore, finance and compliance</td><td>She is a sleeping partner.</td><td>You own every
-decision. <b>Admin is outsourced</b>: an accountant (GST invoices, TDS, books), the CA (structure) and a freelancer
-(videos, creatives). Your wife signs one authority letter on day 4.</td></tr>
+decision. <b>Admin is outsourced</b>: an accountant (GST invoices, TDS, books) and the CA (structure).
+The <b>Marketing Studio (AI)</b> makes the posters and reels, so there's no marketing hire. Your wife signs one authority letter on day 4.</td></tr>
 <tr><td>16 builders empanelled</td><td>Each builder needs real relationship time. Spreading thin means nobody
 prioritises you.</td><td><b>10 empanelled, 4–5 deeply active</b>: 2 anchor brands for credibility plus 3 builders with
 slow stock, where pilots come from.</td></tr>
@@ -256,11 +269,14 @@ sessions. Cheaper leads, higher trust, faster bookings. Ads add volume on top.</
 Wednesday from week 5. That's how pilots and better slabs are earned.</td></tr>
 <tr><td><b>6</b></td><td><b>Speed and visit rate:</b> call within 15 minutes, free cab pickup, weekend slots, and you at every visit for
 the first 3 weekends to learn what closes.</td></tr>
-<tr><td><b>7</b></td><td><b>Spend only behind proof:</b> ads rise only while cost per booking stays below 30% of earnings, and salesperson
+<tr><td><b>7</b></td><td><b>AI marketing instead of a marketing team:</b> the Marketing Studio drafts a weekly pack of posters
+and reels from real project photos. You approve in 10 minutes; it posts daily and tracks which angles bring
+leads.</td></tr>
+<tr><td><b>8</b></td><td><b>Spend only behind proof:</b> ads rise only while cost per booking stays below 30% of earnings, and salesperson
 #2 joins only above 120 leads a month.</td></tr>
 </table>
 
-<div class="warn"><b>Bangalore and the Karnataka RERA registration:</b> it is in your wife's name. Before any Bangalore
+<div class="warn keep"><b>Bangalore and the Karnataka RERA registration:</b> it is in your wife's name. Before any Bangalore
 activity, ask your CA and a RERA consultant whether the firm can trade there under her registration while she is a
 sleeping partner, or whether the firm (or the new Pvt Ltd) should register in Karnataka itself. Until then: no
 Bangalore ads or registrations. The authority letter (day 4) covers the documents she would otherwise have to
@@ -268,7 +284,7 @@ sign.</div>
 </div>
 
 <!-- ============ PAGE: OVERALL PLAN ============ -->
-<div class="page">
+<div class="sect">
 <h2>3. The overall plan on one page</h2>
 <table>
 <tr><th style="width:24%">What we are</th><td><b>Skyline Realty, Chennai's AI-powered home advisor</b> (Bangalore next). Buyers get honest,
@@ -285,7 +301,7 @@ exclusive mandates at 3.5–5% plus fees. Year 3+: own projects through joint de
 booking.</td></tr>
 <tr><th>Team, first 100 days</th><td><b>You</b> (builders, closing, approvals, hiring) · <b>salesperson #1</b> from 15 Dec ·
 <b>salesperson #2</b> from 16 Feb if leads exceed 120/month · <b>accountant</b> (part-time, outsourced) · <b>CA</b> ·
-<b>freelancer</b> for content · builders' site teams host visits · <b>the AI system</b>, 24×7.</td></tr>
+<b>Marketing Studio (AI)</b> for all content, no marketing hire · builders' site teams host visits · <b>the AI system</b>, 24×7.</td></tr>
 <tr><th>Year-1 target (2027)</th><td><b>90 bookings</b> (Chennai about 75, Bangalore about 15 from Q2) · ~₹80 Cr sales · <b>~₹2.1 Cr
 commission</b> · estimated costs ₹1.1–1.3 Cr · profit ₹0.8–1 Cr, reinvested.</td></tr>
 <tr><th>The ladder</th><td>Year 1 prove the engine in Chennai → Year 2 Bangalore + exclusive mandates → Year 3–4 first own project
@@ -306,14 +322,14 @@ the most.</small></p>
 <h3>Who does what</h3>
 <table><tr><td>{tags('Y')}</td><td>Builders, closing, approvals, hiring, Monday review</td></tr>
 <tr><td>{tags('S')}</td><td>Calls within 15 minutes, visits, follow-up, visit reports</td></tr>
-<tr><td>{tags('A')}</td><td>Replies, qualification, follow-ups, reminders, builder reports</td></tr>
-<tr><td>{tags('O')}</td><td>Accountant: invoices, GST/TDS · CA: structure · freelancer: content</td></tr>
+<tr><td>{tags('A')}</td><td>Replies, follow-ups, reminders, builder reports, <b>posters, reels, captions, posting</b></td></tr>
+<tr><td>{tags('O')}</td><td>Accountant: invoices, GST/TDS · CA: structure</td></tr>
 <tr><td>{tags('C')}</td><td>Inventory uploads, set-up, proposals, system changes</td></tr></table></div>
 </div>
 </div>
 
 <!-- ============ PAGE: BUDGET + KPI + WEEK ============ -->
-<div class="page">
+<div class="sect">
 <h2>4. 100-day budget, Chennai only (estimates; get real quotes)</h2>
 <table>
 <tr><th>Item</th><th>100 days</th><th>Notes</th></tr>
@@ -324,10 +340,10 @@ the most.</small></p>
 <tr><td>Free cab pickup</td><td>₹0.4–0.6 L</td><td>~₹1,000 per visit, about half the visits</td></tr>
 <tr><td>Accountant (outsourced)</td><td>₹0.2–0.3 L</td><td>GST invoices, TDS, books</td></tr>
 <tr><td>CA, legal, agreements, Pvt Ltd groundwork</td><td>₹0.5–1 L</td><td>incl. authority letter, RERA advice</td></tr>
-<tr><td>Freelancer content, cards, one-pager</td><td>₹0.3–0.5 L</td><td></td></tr>
-<tr><td>AI + hosting + WhatsApp messages</td><td>₹0.3–0.5 L</td><td></td></tr>
+<tr><td>Visiting cards, one-pager, standee</td><td>₹0.15–0.25 L</td><td>No freelancer: content comes from the Marketing Studio</td></tr>
+<tr><td>AI (incl. Marketing Studio) + hosting + WhatsApp</td><td>₹0.35–0.6 L</td><td>The studio adds only a few hundred rupees a month</td></tr>
 <tr><td>Contingency</td><td>₹0.75 L</td><td></td></tr>
-<tr><th>Total</th><th>₹8–11.5 L</th><th>Plus keep an <b>₹8 L buffer</b>: commission arrives 30–90 days after booking.</th></tr>
+<tr><th>Total</th><th>₹7.8–11.9 L</th><th>Plus keep an <b>₹8 L buffer</b>: commission arrives 30–90 days after booking.</th></tr>
 </table>
 
 <h2>5. Weekly scorecard — cumulative targets (Chennai)</h2>
@@ -338,13 +354,13 @@ place · Bangalore go/no-go decided.</div>
 
 <div class="keep"><h3>Your week as a solo founder (from week 4)</h3>
 <table>
-<tr><td style="width:13%"><b>Mon</b></td><td>9:00 digest · 9:30–10:30 <b>review</b> (10-yr plan page, Reports) · calls and approvals · afternoon: builder meeting</td></tr>
+<tr><td style="width:13%"><b>Mon</b></td><td>9:00 digest · 9:30–10:30 <b>review</b> (10-yr plan page, Reports) + <b>approve the Studio pack</b> (10 min) · calls and approvals · afternoon: builder meeting</td></tr>
 <tr><td><b>Tue</b></td><td>Builder prospecting and meetings (max 3) · 30 minutes with the accountant when needed</td></tr>
 <tr><td><b>Wed</b></td><td>10:00 <b>send builder reports</b> (15 min) · meetings · marketing (ads, content)</td></tr>
 <tr><td><b>Thu</b></td><td>Coach the salesperson (listen to 3 calls) · closing calls · bank and corporate tie-ups</td></tr>
 <tr><td><b>Fri</b></td><td>Morning: booking logistics and hot list for the weekend · <b>afternoon off</b> (protect it)</td></tr>
 <tr><td><b>Sat–Sun</b></td><td>Site visits and closing, the peak days · visit reports the same evening</td></tr>
-<tr><td><b>Daily</b></td><td>Approvals within 1 hour (the AI waits for you) · 7 PM: 10-minute pipeline check · salesperson's weekly off: Tuesday</td></tr>
+<tr><td><b>Daily</b></td><td>Approvals within 1 hour (the AI waits for you) · 7 PM: 10-minute pipeline check · 7:30 PM: post today's creative (2 min, until auto-posting is on) + WhatsApp status · salesperson's weekly off: Tuesday</td></tr>
 </table></div>
 
 <div class="warn"><b>Local calendar (verify the dates each year):</b>
@@ -354,9 +370,67 @@ place · Bangalore go/no-go decided.</div>
 <li><b>Navratri → Diwali:</b> peak.</li></ul></div>
 </div>
 
+<!-- ============ PAGE: AI MARKETING ============ -->
+<div class="sect">
+<h2>6. Marketing with AI — no marketing hire</h2>
+<p>All marketing content comes from the <b>Marketing Studio</b> in your dashboard (Marketing ▾ → Marketing Studio).
+Claude writes the words, the studio lays them over the builders' <b>real</b> photos, and it tracks which angles bring
+leads. You spend about <b>1.5 hours a week</b> on marketing in total.</p>
+
+<div class="cols">
+<div class="keep"><h3>The weekly loop</h3><table>
+<tr><td style="width:24%"><b>Mon 08:00</b></td><td>{tags('A')} The weekly pack is drafted: 3 projects × (3 feed designs + 3 story designs) + 1 reel. You get a WhatsApp.</td></tr>
+<tr><td><b>Mon review</b></td><td>{tags('Y')} 10 min: pick the best design per project, read every claim, approve. Rejected designs teach it your taste.</td></tr>
+<tr><td><b>Daily 19:30</b></td><td>{tags('A')} One feed post + one story go out. Before auto-posting is connected, you get the image + caption on WhatsApp (2 min to post).</td></tr>
+<tr><td><b>Daily</b></td><td>{tags('S')} The story goes to the salespeople for their WhatsApp status; you post it too.</td></tr>
+<tr><td><b>Every 2 weeks</b></td><td>{tags('Y')} 20 min: swap fresh Studio designs into Meta ads (ads tire after ~2 weeks).</td></tr>
+<tr><td><b>Monthly</b></td><td>{tags('Y')} 30 min: Reports + 10-yr plan page: which angles and ads brought <i>visits</i>, not just leads? Keep those.</td></tr>
+</table></div>
+<div class="keep"><h3>What the studio guarantees</h3><ul>
+<li><b>Real pictures only:</b> no AI-invented buildings (that would be misleading under RERA)</li>
+<li><b>Prices from Inventory</b>, never written by the AI; "starting price" footnote on every creative</li>
+<li><b>Project RERA + your agent RERA</b> + "marketed by Skyline Realty for [builder]" on every creative and caption</li>
+<li><b>Risky claims flagged:</b> "guaranteed", "best", "lowest", returns, AI-written prices</li>
+<li><b>Builder permission required</b> before a partner project can be approved</li>
+<li><b>Nothing goes out without your approval</b></li>
+<li><b>Tracking:</b> every caption links to the project's landing page, so leads are traced to the content</li></ul></div>
+</div>
+
+<div class="keep"><h3>Channels — who does what</h3>
+<table>
+<tr><th style="width:20%">Channel</th><th>AI does</th><th>You do</th><th style="width:12%">Cost</th><th style="width:17%">Day-100 goal</th></tr>
+<tr><td><b>Meta lead ads + Click-to-WhatsApp</b></td><td>Ad copy (Campaigns), poster and reel creatives (Studio), replies to every lead in 5 min</td><td>Set budget, swap creatives fortnightly, apply the 30% rule</td><td>₹1.5–3k/day</td><td>~55% of leads</td></tr>
+<tr><td><b>Instagram + Facebook page</b></td><td>1 post + 1 story a day, captions, hashtags; auto-posting once connected</td><td>Approve Monday; reply to comments with "WhatsApp us"</td><td>Free</td><td>60+ posts, 14+ reels</td></tr>
+<tr><td><b>WhatsApp status</b> (you + salespeople)</td><td>Sends the day's story to every phone</td><td>Post it (10 seconds)</td><td>Free</td><td>Daily, from day 19</td></tr>
+<tr><td><b>Portals</b> (99acres, MagicBricks, Housing)</td><td>Reads portal lead emails into the system (built); listing text from Campaigns</td><td>List projects; keep prices current</td><td>₹0.75–1.5 L</td><td>~20% of leads</td></tr>
+<tr><td><b>Landing pages</b> /p/project</td><td>Built automatically with consent + tracking</td><td>Share links</td><td>Free</td><td>Every ad and post links here</td></tr>
+<tr><td><b>Google Business Profile</b></td><td>Weekly poster to post there</td><td>Create the profile (day 31); ask visited buyers for reviews</td><td>Free</td><td>15+ reviews</td></tr>
+<tr><td><b>Referrals, bankers, corporate sessions</b></td><td>Referral and session posters</td><td>Meetings and relationships</td><td>Low</td><td>~25% of leads</td></tr>
+<tr><td><b>YouTube Shorts</b></td><td>Studio reels</td><td>Upload weekly (2 min)</td><td>Free</td><td>12+ shorts</td></tr>
+</table></div>
+
+<div class="cols">
+<div class="keep"><h3>Content mix each week</h3><ul>
+<li><b>7 feed posts:</b> 5 project posters (rotating angles: ready to move, location, lifestyle, value, family) + 2
+from your phone (site progress, a happy-buyer photo <i>with their consent</i>)</li>
+<li><b>7 stories / WhatsApp status:</b> Studio story designs</li>
+<li><b>1–2 reels:</b> one Studio slideshow + one 30-second phone walk-through by the salesperson</li>
+<li><b>Seasonal packs:</b> Pongal/Thai (Jan), financial-year-end offers (Feb–Mar), only with builder-approved offers</li></ul></div>
+<div class="keep"><h3>What still needs a human (and why)</h3><ul>
+<li><b>Approval:</b> RERA rules and the builder's brand are your responsibility, so every creative needs a human yes</li>
+<li><b>Real photos and videos:</b> 10 phone photos per project on your first walk-through (day 13), plus builder renders</li>
+<li><b>Ad budget:</b> the AI never spends money on its own</li>
+<li><b>Builder permission:</b> written OK to advertise each partner project (ask with the CP agreement)</li>
+<li><b>Meta setting:</b> check whether property ads must use the "Housing" special ad category (limits age, gender and
+postcode targeting); broad targeting with strong creatives works well</li></ul></div>
+</div>
+<div class="ok"><b>Marketing time budget:</b> Monday approval 10 min · daily posting 2 min (until auto-posting) · ad swap
+20 min a fortnight · monthly review 30 min ≈ <b>1.5 hours a week</b>. No marketing salary, no freelancer.</div>
+</div>
+
 <!-- ============ PAGE: CP PLAN — STRATEGY ============ -->
-<div class="page">
-<h2>6. CP plan with builders — the strategy</h2>
+<div class="page" style="page-break-before:always">
+<h2>7. CP plan with builders — the strategy</h2>
 <p>Most channel partners are one of 100–300 brokers a builder works with, competing on discounts. <b>Skyline's plan is to
 become the builder's most reliable sales partner in each focus market, then convert that into preferred and exclusive
 deals.</b> We earn that with data, not discounts.</p>
@@ -407,7 +481,7 @@ site · reports of delayed CP payouts · builder wants buyer details before agre
 
 <!-- ============ PAGE: APPROACH + SCRIPTS ============ -->
 <div class="page">
-<h2>7. How to approach builders</h2>
+<h2>8. How to approach builders</h2>
 <div class="cols">
 <div class="keep"><h3>Ways in, best first</h3><ol>
 <li><b>Warm introduction</b>: bankers (home-loan managers know every builder), architects, other CPs, friends in the
@@ -463,7 +537,7 @@ biggest problem with CPs? How do tagging and payouts work? Any offers running no
 
 <!-- ============ PAGE: OBJECTIONS + PILOT ============ -->
 <div class="page">
-<h2>8. Objections, pilot and mandate</h2>
+<h2>9. Objections, pilot and mandate</h2>
 <h3>Handling builder objections</h3>
 <table>
 <tr><th style="width:30%">They say</th><th>You say</th></tr>
@@ -517,7 +591,7 @@ Consistently ≥25% of the project's monthly sales → pitch an <b>exclusive man
 
 <!-- ============ PAGES: 100 DAYS ============ -->
 <div class="page">
-<h2>9. The 100-day plan — day by day</h2>
+<h2>10. The 100-day plan — day by day</h2>
 <p><small>Shading: <span style="background:#fff7d6;padding:0 2mm">weekly review</span>
 <span style="background:#f6f8fb;padding:0 2mm">weekend (visit days)</span>
 <span style="background:#f3f0ff;padding:0 2mm">holiday</span>. Owners: {tags('YSAOC')}. If you fall behind, keep the
@@ -528,7 +602,7 @@ Monday review and the "done when" column honest; push dates, don't skip steps.</
 </div>
 
 <div class="page">
-<h2>10. After day 100 — what success unlocks</h2>
+<h2>11. After day 100 — what success unlocks</h2>
 <table>
 <tr><th style="width:30%">If by day 100…</th><th>Then in days 101–200…</th></tr>
 <tr><td>8+ bookings and cost per booking ≤ 30% of earnings</td><td>Raise ads gradually, hire salesperson #3, add 1 micro-market, start Bangalore with a city lead</td></tr>

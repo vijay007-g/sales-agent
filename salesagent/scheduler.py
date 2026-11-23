@@ -140,6 +140,17 @@ def tick() -> dict:
         if learning.due():
             events.dispatch(learning.learn)
 
+    # 6b. weekly report to partner builders (default Wednesday 10:00; review mode asks the owner first)
+    from . import builder_report
+    bc = builder_report.cfg()
+    if now.weekday() == bc["weekday"] and now.hour >= bc["hour"] and not quiet \
+            and not _sent_today("builder_reports_check"):
+        db.audit(None, "system", "builder_reports_check", "")
+        try:
+            stats["builder_reports"] = builder_report.weekly_job()
+        except Exception:  # noqa: BLE001 - never stop the clock for a report problem
+            log.exception("builder reports failed")
+
     # 7. morning digest for the owner
     if now.time() >= time(9, 0) and not _sent_today("digest"):
         channels.notify_staff(s.owner["phone"], digest())

@@ -130,6 +130,21 @@ Presets: **Best** (top model everywhere — default), **Balanced** (Sonnet 5.5 f
 Whatever is chosen, key moments always use the top model: price / discount / booking / payment talk, complaints,
 post-visit strategy, management decisions and hot buyers. Reports → AI usage shows calls and cost per model.
 
+## Weekly builder reports (Sales ▾ → Builder weekly reports)
+
+Every Wednesday at 10:00, each partner builder with activity gets a report by WhatsApp and email:
+- buyers registered with them;
+- site visits, with the buyer's interest, price reaction, liked unit, concerns and competitors considered;
+- visits coming up in the next 7 days;
+- registered buyers still in progress;
+- bookings;
+- registrations waiting for their ACK;
+- payments due.
+
+Buyers appear by first name only; no phone numbers. The default mode is **review**: you get a WhatsApp and send the
+reports with one click. Set `builder_reports: {mode: auto | review | off, weekday: 2, hour: 10}` in Settings →
+Advanced to change this.
+
 ## 10-year plan (dashboard → 10-yr plan)
 
 The strategy is in `docs/Skyline-10-Year-Plan.pdf`: distribution → exclusive mandates → own development

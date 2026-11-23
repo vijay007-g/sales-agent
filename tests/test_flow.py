@@ -1754,3 +1754,50 @@ def test_growth_plan_and_demand_gap(fresh):
     assert len(growth.gate1()) == 6 and not growth.gate1()[0]["ok"]
     assert "plan" in growth.digest_line().lower() or "Plan year" in growth.digest_line()
     assert growth.band(None)[0] == "budget unknown"
+
+
+def test_weekly_builder_report(fresh, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from salesagent import builder_report as br
+    from salesagent.server import app
+    p = _partner_setup()
+    lead = mk_lead(city="Bangalore", name="Asha Raman")
+    pipeline.move(lead["id"], "qualified", "system")
+    tomorrow = (get_settings().now() + timedelta(days=1)).date().isoformat()
+    slot = visits.free_slots("Lakeview Heights", tomorrow)[0]
+    assert visits.book(lead["id"], "Lakeview Heights", slot["time"], "")["ok"]
+    bid = p["builder_id"] if "builder_id" in p else db.q1("SELECT builder_id FROM inv_projects WHERE id = ?",
+                                                           (p["id"],))["builder_id"]
+    r = br.build(bid)
+    assert br.has_activity(r) and len(r["new_regs"]) == 1 and len(r["upcoming"]) == 1
+    # the visit happened yesterday and the site team filed the report
+    v = db.q1("SELECT id FROM site_visits WHERE lead_id = ?", (lead["id"],))
+    db.update("site_visits", v["id"], {"scheduled_at": (get_settings().now() - timedelta(days=1)).isoformat()})
+    fresh.fake.queue([tool_use("send_message", text="Thanks for visiting!", channel="whatsapp")])
+    visits.record_feedback(v["id"], {"attended": "yes", "interest": "warm", "price_reaction": "slightly high",
+                                     "unit_liked": "A-502", "concerns": "Parking is tight",
+                                     "competitors": "Prestige Lake, Brigade Park", "next_step_agreed": "family visit"})
+    text = br.text(br.build(bid))
+    assert "Asha" in text and "Raman" not in text and lead["phone"][-6:] not in text
+    assert "slightly high 1" in text and "Prestige Lake (1)" in text and "Parking is tight" in text
+    assert "PLEASE ACKNOWLEDGE" not in text or "ACK R" in text
+    # review mode: owner is told, builder gets nothing yet
+    fresh.sent.clear()
+    assert br.weekly_job()["sent"] == 0
+    assert any("builder report" in t for t in to(fresh, owner_phone()))
+    assert not to(fresh, BUILDER_PHONE)
+    # sending from the dashboard
+    monkeypatch.setenv("DASHBOARD_PASSWORD", "pw")
+    with TestClient(app) as c:
+        page = c.get("/builder-reports", auth=("o", "pw"))
+        assert page.status_code == 200 and "Lakeside Partner" in page.text
+        assert c.post(f"/builder-reports/{bid}/send", auth=("o", "pw")).status_code == 200
+    assert any("Weekly partner report" in t for t in to(fresh, BUILDER_PHONE))
+    assert any(to_ == "crm@partner.example" for to_, _t in fresh.sent)
+    assert br.last_sent(bid)
+    # auto mode sends directly; sample/own builders never get one
+    s = get_settings()
+    monkeypatch.setattr(s, "raw", {**s.raw, "builder_reports": {"mode": "auto"}})
+    assert br.weekly_job()["sent"] == 1
+    assert all(not b["is_own"] and not b["is_sample"] for b in br.builders())

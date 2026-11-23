@@ -273,7 +273,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <header><b>{escape(get_settings().business['name'])}</b>
 <a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/growth">10-yr plan</a>
 <details class="nav"><summary>Sales ▾</summary><div><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
-<a href="/registrations">Builder registrations</a></div></details>
+<a href="/registrations">Builder registrations</a><a href="/builder-reports">Builder weekly reports</a></div></details>
 <details class="nav"><summary>Marketing ▾</summary><div><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
 <a href="/reports">Reports</a><a href="/insights">Learning</a></div></details>
 <details class="nav"><summary>Admin ▾</summary><div><a href="/team">Team</a><a href="/settings">Settings</a>
@@ -651,6 +651,62 @@ def new_campaign(project: str = Form(...), channel: str = Form(...), budget: str
 def approve_campaign(cid: int, _: str = Depends(owner_auth)):
     db.update("campaigns", cid, {"status": "approved"})
     return RedirectResponse("/campaigns", status_code=303)
+
+
+@app.get("/builder-reports", response_class=HTMLResponse)
+def builder_reports_page(msg: str = "", _: str = Depends(owner_auth)):
+    from . import builder_report as br
+    c = br.cfg()
+    mode_text = {"review": "you get a WhatsApp each week and send from here",
+                 "auto": "sent automatically", "off": "switched off"}.get(c["mode"], c["mode"])
+    day = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][c["weekday"] % 7]
+    cards, ready = "", 0
+    for b in br.builders():
+        r = br.build(b["id"])
+        active = br.has_activity(r)
+        ready += active
+        last = br.last_sent(b["id"])
+        contact = " · ".join(x for x in (b["contact_name"], b["contact_phone"], b["contact_email"]) if x) or \
+            "<span style='color:#b3261e'>no contact — add it on the builder page</span>"
+        cards += (f"<div class='card'><h3>{escape(b['name'])} {'' if active else '<small>(no activity this week)</small>'}</h3>"
+                  f"<p><small>To: {contact if '<span' in contact else escape(contact)} · last sent: "
+                  f"{escape(last[:16].replace('T', ' ')) if last else 'never'}</small></p>"
+                  f"<details{' open' if active else ''}><summary>Preview</summary>"
+                  f"<pre style='white-space:pre-wrap;font-size:13px'>{escape(br.text(r))}</pre></details>"
+                  f"<form method='post' action='/builder-reports/{b['id']}/send'><button>Send to {escape(b['name'])}"
+                  f"</button></form></div>")
+    note = f'<div class="notice">{escape(msg)}</div>' if msg else ""
+    return page("Builder weekly reports", f"""<h2>Builder weekly reports</h2>{note}
+<div class="card"><p>Every {day} at {c['hour']}:00 each partner builder with activity gets a report: buyers registered,
+site visits with buyer feedback (price reaction, concerns, competitors), visits coming up, bookings and payments due.
+Phone numbers are never included. This is the 4th promise in your builder pitch, and it builds the trust that turns
+into pilots and exclusive deals.</p>
+<p>Mode: <b>{escape(c['mode'])}</b> ({mode_text}). Change it under <code>builder_reports:</code> in Settings → Advanced
+(<code>mode: review | auto | off</code>, <code>weekday: 2</code>, <code>hour: 10</code>).</p>
+<form method="post" action="/builder-reports/send-all"><button>Send all {ready} report(s) with activity now</button></form></div>
+{cards or '<div class="card">No partner builders yet. Add them in Inventory.</div>'}""")
+
+
+@app.post("/builder-reports/{bid}/send")
+def builder_report_send(bid: int, _: str = Depends(owner_auth)):
+    from urllib.parse import quote
+
+    from . import builder_report as br
+    r = br.send(bid)
+    msg = f"Sent to {r['builder']}." if r["ok"] else r["error"]
+    return RedirectResponse(f"/builder-reports?msg={quote(msg)}", status_code=303)
+
+
+@app.post("/builder-reports/send-all")
+def builder_report_send_all(_: str = Depends(owner_auth)):
+    from urllib.parse import quote
+
+    from . import builder_report as br
+    results = [br.send(b["id"]) for b in br.builders() if br.has_activity(br.build(b["id"]))]
+    ok = [r["builder"] for r in results if r["ok"]]
+    bad = [r["error"] for r in results if not r["ok"]]
+    msg = (f"Sent to {len(ok)}: {', '.join(ok)}." if ok else "Nothing sent.") + (" " + " ".join(bad) if bad else "")
+    return RedirectResponse(f"/builder-reports?msg={quote(msg)}", status_code=303)
 
 
 @app.get("/growth", response_class=HTMLResponse)

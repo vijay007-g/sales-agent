@@ -71,9 +71,14 @@ def pick(rows, y):
 
 
 compare = ""
+hand = ""
 for y in (2031, 2036, 2041):
-    compare += (f"<tr><td><b>{y}</b></td><td>{cr(pick(OWN_ONLY_18, y)['own'])} – {cr(pick(OWN_ONLY, y)['own'])}</td>"
-                f"<td>{cr(pick(BASE, y)['pat'] * 15)}</td><td><b>{cr(pick(PLAN, y)['pat'] * 15)}</b></td></tr>")
+    o, b, pl = pick(OWN_ONLY, y), pick(BASE, y), pick(PLAN, y)
+    hand += (f"<tr><td><b>{y}</b></td><td>{cr(o['own'])}</td><td>{cr(b['own'])}</td><td><b>{cr(pl['own'])}</b></td>"
+             f"<td>{pl['own'] / o['own']:.1f}×</td></tr>")
+    compare += (f"<tr><td><b>{y}</b></td><td>{cr(o['pat'] * 15)}</td>"
+                f"<td>{cr(b['pat'] * 15)}</td><td><b>{cr(pl['pat'] * 15)}</b></td></tr>")
+O42 = 7 * 1.27 ** 15
 
 css = open(f"{ROOT}/docs/workflow.html").read().split("<style>")[1].split("</style>")[0]
 css += """
@@ -148,15 +153,22 @@ dashboard's 15-yr plan page.</small></p>
 <table class="ladder"><tr><th>Yr</th><th>Year</th><th>Sales value</th><th>Own development</th><th>Investor capital</th>
 <th>Your capital</th><th>Profit</th><th>Value</th><th>Milestone</th></tr>{ladder}</table>
 
-<h2>5. Three paths compared (company value)</h2>
+<h2>5. Three paths compared</h2>
+<div class="keep"><h3>Capital in hand: money your company actually owns (land, projects, cash), not a valuation</h3>
 <table>
-<tr><th>End of</th><th>Own capital only (₹7 Cr at 18–27%, nothing else)</th><th>Cautious case</th><th>Plan case</th></tr>
+<tr><th>End of</th><th>₹7 Cr compounding alone at 27%</th><th>Cautious case</th><th>Plan case</th><th>Plan vs alone</th></tr>
+{hand}
+</table>
+<p><small>₹7 Cr goes in at end-2027, so by Dec 2041 it has compounded for 14 years; 15 full years (Dec 2042) gives
+about {cr(O42)}. All profit is assumed reinvested: anything taken out beyond the ₹1 Cr set aside lowers every column.
+Most of this capital is always working in projects, so it is not all cash at any one time.</small></p></div>
+<div class="keep"><h3>Company value (15 × yearly profit)</h3>
+<table>
+<tr><th>End of</th><th>₹7 Cr compounding alone at 27%</th><th>Cautious case</th><th>Plan case</th></tr>
 {compare}
 </table>
-<p><small>"Own capital only" shows your capital, not company value. The ₹7 Cr goes in at end-2027, so by Dec 2041 it
-has compounded for 14 years: about {cr(pick(OWN_ONLY, 2041)['own'])} at 27% (15 full years, to Dec 2042, gives about
-₹252 Cr). Even ₹252 Cr earning 27% means ~₹68 Cr profit a year, a company worth ~₹1,000 Cr. The jump comes from investor capital in project companies plus the
-sales engine. Cautious case: 18% on own capital, half the investor capital, 70% of the sales-business profit.</small></p>
+<p><small>Cautious case: 18% on own capital, half the investor capital, 70% of the sales-business profit. The jump from
+the first column comes from investor capital in project companies plus the sales engine.</small></p></div>
 </div>
 
 <div class="sect">

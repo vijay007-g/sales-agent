@@ -273,7 +273,7 @@ def page(title: str, body: str) -> HTMLResponse:
 <link rel="manifest" href="/manifest.json"><link rel="icon" href="/icon.svg"><link rel="apple-touch-icon" href="/icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes"><style>{CSS}</style></head><body>
 <header><b>{escape(get_settings().business['name'])}</b>
-<a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/growth">10-yr plan</a>
+<a href="/">Overview</a><a href="/leads">Leads</a><a href="/calls">Calls</a><a href="/visits">Visits</a><a href="/growth">15-yr plan</a>
 <details class="nav"><summary>Sales ▾</summary><div><a href="/inventory">Inventory</a><a href="/commissions">Commissions</a>
 <a href="/registrations">Builder registrations</a><a href="/builder-reports">Builder weekly reports</a></div></details>
 <details class="nav"><summary>Marketing ▾</summary><div><a href="/studio">Marketing Studio</a><a href="/sources">Lead sources</a><a href="/campaigns">Campaigns</a>
@@ -840,9 +840,13 @@ def growth_page(_: str = Depends(owner_auth)):
                    for c in growth.concentration())
     ladder = "".join(f"<tr{' style=\"background:#fff7d6\"' if x['year'] == max(p['year_index'], 1) else ''}><td>{x['year']}</td>"
                      f"<td>{x['calendar']}</td><td>{x['bookings']:,}</td><td>₹{x['sales_cr']:,.0f} Cr</td>"
-                     f"<td>{'₹%s Cr' % format(int(x['own_cr']), ',') if x['own_cr'] else '—'}</td><td>{escape(x['milestone'])}</td></tr>"
+                     f"<td>{'₹%s Cr' % format(int(x['own_cr']), ',') if x['own_cr'] else '—'}</td>"
+                     f"<td>{'₹%s Cr' % format(int(x['investor_cr']), ',') if x['investor_cr'] else '—'}</td>"
+                     f"<td>{'₹%s Cr' % format(int(x['capital_cr']), ',') if x['capital_cr'] else '—'}</td>"
+                     f"<td>{'₹%s Cr' % format(int(x['profit_cr']), ',') if x['profit_cr'] else '—'}</td>"
+                     f"<td>{escape(x['milestone'])}</td></tr>"
                      for x in growth.plan())
-    return page("10-year plan", f"""<h2>10-year plan — the road to a ₹8,800 Cr ($1B) company</h2>
+    return page("15-year plan", f"""<h2>15-year plan — the road to a ₹8,800 Cr ($1B) company by 2041, 100% owned</h2>
 <div class="card"><h3>Where we are</h3>{head}</div>
 <div class="card"><h3>Gate 1 — is the engine working?</h3>
 <p><small>Spend on growth (more ads, more salespeople, a new city) only when every line is ticked. Until then, fix the
@@ -868,9 +872,10 @@ own projects.</small></p>
 <div class="card"><h3>Builder concentration</h3>
 <table><tr><th>Builder</th><th>Commission</th><th>Share</th></tr>{conc or '<tr><td colspan=3>No commission yet.</td></tr>'}</table></div>
 <div class="card"><h3>Last 12 months</h3><table><tr><th>Month</th><th>Leads</th><th>Bookings</th><th>Sales</th></tr>{mrows}</table></div>
-<div class="card"><h3>The 10-year ladder</h3>
-<table><tr><th>Year</th><th></th><th>Bookings</th><th>Sales value</th><th>Own projects</th><th>Milestone</th></tr>{ladder}</table>
-<p><small>Full reasoning: <code>docs/Skyline-10-Year-Plan.pdf</code> in the GitHub repo. Targets can be changed under
+<div class="card"><h3>The 15-year ladder</h3>
+<table><tr><th>Year</th><th></th><th>Bookings</th><th>Sales value</th><th>Own development</th><th>Investor capital</th>
+<th>Your capital</th><th>Profit</th><th>Milestone</th></tr>{ladder}</table>
+<p><small>Full reasoning, the capital model and the cautious case: <code>docs/Skyline-15-Year-Plan.pdf</code> in the GitHub repo. Targets can be changed under
 <code>growth:</code> in Admin → Settings → Advanced.</small></p></div>""")
 
 

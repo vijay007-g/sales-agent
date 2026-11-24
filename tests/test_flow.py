@@ -1744,7 +1744,8 @@ def test_grouped_menu_has_all_pages(monkeypatch):
 def test_growth_plan_and_demand_gap(fresh):
     from salesagent import growth
     plan = growth.plan()
-    assert len(plan) == 10 and plan[0]["calendar"] == growth.start_year() and plan[-1]["sales_cr"] >= 15000
+    assert len(plan) == 15 and plan[0]["calendar"] == growth.start_year() and plan[-1]["sales_cr"] >= 15000
+    assert plan[-1]["profit_cr"] * 15 >= 8800 and plan[-1]["calendar"] == growth.start_year() + 14
     for i in range(3):
         mk_lead(phone=f"98765000{i:02d}", city="Chennai", location_pref="Velachery", budget_max=6500000,
                 unit_type="2BHK")

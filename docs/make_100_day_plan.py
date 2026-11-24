@@ -173,7 +173,7 @@ DAYS = [
     ("Chennai: hire #2 decision", "If leads exceed 120/month, post the job ad for salesperson #2 (or a Bangalore site "
      "coordinator if your weekends are full). Chennai pipeline review with the coordinator.", "YK", "Decision"),
     ("Chennai: inventory refresh", "Update prices and availability in both cities; add projects matching the demand "
-     "gaps (10-yr plan page).", "YC", "Inventory current"),
+     "gaps (15-yr plan page).", "YC", "Inventory current"),
     ("Visits", "Visits.", "YK", "—"),
     ("Visits", "Same as yesterday.", "YK", "—"),
     ("REVIEW #9 — DAY-60 CHECK", "Approve the Studio pack. Check: 4+ builders per city? 500 leads? 3+ bookings? Fix the "
@@ -359,8 +359,8 @@ work from home / co-working, calls for both cities, from 15 Dec · <b>site coord
 <b>the AI system</b>, 24×7.</td></tr>
 <tr><th>Year-1 target (2027)</th><td><b>90 bookings</b> (about half per city) · ~₹80 Cr sales · <b>~₹2.1 Cr commission</b> · estimated
 costs ₹1.2–1.4 Cr · profit ₹0.7–0.9 Cr, reinvested. Plus your own project's sales once registered.</td></tr>
-<tr><th>The ladder</th><td>Year 1 prove the engine in both cities → Year 2 exclusive mandates + more own projects → Year 6+ platform
-licensing → Year 10 ~$1B company, 100% owned by the partners.</td></tr>
+<tr><th>The ladder</th><td>2027 prove the engine in both cities → end-2027 first own-capital project (₹8 Cr capital) → 2029 investor
+capital in project companies → 2032 platform licensing → 2041 ~$1B company, 100% owned (see the 15-Year Plan).</td></tr>
 </table>
 
 <div class="cols">
@@ -410,7 +410,7 @@ working · Karnataka RERA settled · office decisions made · <b>all three proje
 
 <div class="keep"><h3>Your week: 5 days Bangalore, 2 days Chennai</h3>
 <table>
-<tr><td style="width:15%"><b>Mon</b> · BLR</td><td>9:00 digest · <b>review</b> (10-yr plan, Reports, Cash plan) + approve the Studio pack · 30-min 1:1 with the salesperson (listen to 3 calls) · afternoon: builder meeting</td></tr>
+<tr><td style="width:15%"><b>Mon</b> · BLR</td><td>9:00 digest · <b>review</b> (15-yr plan, Reports, Cash plan) + approve the Studio pack · 30-min 1:1 with the salesperson (listen to 3 calls) · afternoon: builder meeting</td></tr>
 <tr><td><b>Tue</b> · BLR</td><td>Bangalore builder meetings (max 3) · accountant by phone when needed</td></tr>
 <tr><td><b>Wed</b> · BLR</td><td>10:00 <b>send builder reports</b> (15 min) · meetings · marketing · evening: travel to Chennai</td></tr>
 <tr><td><b>Thu</b> · CHN</td><td>Morning: construction site, landowner, bank, architect (Track B) · afternoon: Chennai builders · coordinator 1:1</td></tr>
@@ -441,7 +441,7 @@ leads. You spend about <b>1.5 hours a week</b> on marketing in total.</p>
 <tr><td><b>Daily 19:30</b></td><td>{tags('A')} One feed post + one story go out. Before auto-posting is connected, you get the image + caption on WhatsApp (2 min to post).</td></tr>
 <tr><td><b>Daily</b></td><td>{tags('S')} The story goes to the salespeople for their WhatsApp status; you post it too.</td></tr>
 <tr><td><b>Every 2 weeks</b></td><td>{tags('Y')} 20 min: swap fresh Studio designs into Meta ads (ads tire after ~2 weeks).</td></tr>
-<tr><td><b>Monthly</b></td><td>{tags('Y')} 30 min: Reports + 10-yr plan page: which angles and ads brought <i>visits</i>, not just leads? Keep those.</td></tr>
+<tr><td><b>Monthly</b></td><td>{tags('Y')} 30 min: Reports + 15-yr plan page: which angles and ads brought <i>visits</i>, not just leads? Keep those.</td></tr>
 </table></div>
 <div class="keep"><h3>What the studio guarantees</h3><ul>
 <li><b>Real pictures only:</b> no AI-invented buildings (that would be misleading under RERA)</li>

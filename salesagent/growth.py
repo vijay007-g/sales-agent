@@ -1,9 +1,10 @@
-"""10-year growth plan: targets, live progress, stage gates, unit economics and demand intelligence.
+"""15-year growth plan: targets, live progress, stage gates, unit economics and demand intelligence.
 
-The plan (docs/Skyline-10-Year-Plan.pdf) climbs a ladder of three engines: distribution (channel partner,
-then exclusive mandates), own development through joint development agreements, and the sales platform.
-This module keeps the plan honest by measuring, from real data, whether each gate is passed before the next
-step is taken. Targets can be overridden in config.yaml under `growth:` (Admin → Settings → Advanced).
+The plan (docs/Skyline-15-Year-Plan.pdf) climbs a ladder of four engines: distribution (channel partner, then
+exclusive mandates), development with your own capital (from end-2027), investor capital in project companies
+(from 2029; the main company stays 100% yours), and the sales platform. This module keeps the plan honest by
+measuring, from real data, whether each gate is passed before the next step is taken. Targets can be overridden
+in config.yaml under `growth:` (Admin → Settings → Advanced).
 """
 from __future__ import annotations
 
@@ -14,18 +15,25 @@ from .config import get_settings
 
 CR = 10_000_000  # one crore in rupees
 
-# year, bookings, total sales value (₹ Cr), of which own development (₹ Cr), the milestone that year must deliver
+# year, bookings (channel partner), total sales value (₹ Cr), of which own development (₹ Cr),
+# investor capital in project companies (₹ Cr), your capital (₹ Cr), profit after tax (₹ Cr), milestone.
+# From the 15-year capital model: own capital 24% a year after tax, ~5% on investor capital (fees + profit share).
 DEFAULT_PLAN = [
-    (1, 90, 80, 0, "Two cities, lean team: 8–10 bookings a month by Q4; own Chennai project registered and selling"),
-    (2, 300, 280, 0, "Both cities running; first exclusive mandates; referrals 15% of bookings"),
-    (3, 900, 850, 0, "Demand book of 5,000+ qualified buyers; first joint development (JDA) signed"),
-    (4, 1700, 1700, 0, "Third city; first own JDA project launched with pre-sold expressions of interest"),
-    (5, 2800, 3000, 300, "Own project 70% sold in 12 months; mandates are most of distribution sales"),
-    (6, 4000, 4500, 700, "Two own launches a year; platform licensed to non-competing builders"),
-    (7, 5500, 6500, 1300, "Five cities; development pipeline of 5M sq ft"),
-    (8, 7500, 9000, 2200, "Brand that buyers search for by name; project-level finance partners lined up"),
-    (9, 9500, 12000, 3200, "Three own launches a year; distribution is a moat for every launch"),
-    (10, 12000, 15000, 4500, "₹15,000 Cr sales a year; profit of ~₹600 Cr → ~$1B company value, 100% owned"),
+    (1, 90, 80, 0, 0, 8, 1, "Two cities, lean team: 8–10 bookings a month by Q4; own JV project selling; ₹8 Cr capital"),
+    (2, 300, 288, 8, 0, 10, 3, "First own-capital site (₹6–8 Cr, or plotted layout + JV); exclusive mandates; Pvt Ltd"),
+    (3, 600, 630, 30, 13, 16, 6, "First project-company investors; first plotted layout sold out; 3 micro-markets a city"),
+    (4, 960, 1065, 65, 32, 27, 11, "3 own projects running; demand book of 10,000+ buyers"),
+    (5, 1370, 1623, 123, 65, 44, 18, "First own-capital project delivered on the RERA schedule (the track record)"),
+    (6, 1830, 2317, 217, 117, 72, 28, "Third city; ₹100 Cr+ investor capital; platform licensed to other builders"),
+    (7, 2320, 3159, 359, 195, 113, 41, "Four cities; 10 projects running; in-house construction management"),
+    (8, 2840, 4153, 553, 299, 173, 60, "₹300 Cr investor capital; landowners approach Skyline first for JVs"),
+    (9, 3380, 5325, 825, 442, 259, 86, "Development pipeline of 5M sq ft; a recognised brand in South India"),
+    (10, 3870, 6582, 1182, 624, 378, 119, "₹100 Cr+ profit a year; company worth ~₹1,800 Cr"),
+    (11, 4370, 8124, 1724, 910, 545, 167, "Five to six cities; first investment-fund partner (via a SEBI-registered AIF)"),
+    (12, 4870, 9969, 2469, 1300, 778, 233, "₹1,300 Cr investor capital; ₹10,000 Cr sales a year"),
+    (13, 5320, 12074, 3474, 1820, 1100, 322, "Own capital passes ₹1,000 Cr"),
+    (14, 5770, 14567, 4767, 2470, 1539, 439, "₹14,500 Cr sales a year across distribution and development"),
+    (15, 6170, 17382, 6382, 3250, 2131, 592, "~₹590 Cr profit a year → ~₹8,800 Cr (~$1B) company, 100% owned"),
 ]
 
 
@@ -39,13 +47,15 @@ def start_year() -> int:
 
 def plan() -> list[dict]:
     rows = cfg().get("targets") or [
-        {"year": y, "bookings": b, "sales_cr": s, "own_cr": o, "milestone": m} for y, b, s, o, m in DEFAULT_PLAN]
+        {"year": y, "bookings": b, "sales_cr": s, "own_cr": o, "investor_cr": inv, "capital_cr": cap, "profit_cr": pat,
+         "milestone": m} for y, b, s, o, inv, cap, pat, m in DEFAULT_PLAN]
     out = []
     for r in rows:
         y = int(r["year"])
         out.append({"year": y, "calendar": start_year() + y - 1, "bookings": int(r.get("bookings") or 0),
                     "sales_cr": float(r.get("sales_cr") or 0), "own_cr": float(r.get("own_cr") or 0),
-                    "milestone": r.get("milestone", "")})
+                    "investor_cr": float(r.get("investor_cr") or 0), "capital_cr": float(r.get("capital_cr") or 0),
+                    "profit_cr": float(r.get("profit_cr") or 0), "milestone": r.get("milestone", "")})
     return out
 
 
@@ -272,7 +282,7 @@ def digest_line() -> str:
     if not t:
         return ""
     if p["year_index"] < 1:
-        return f"10-year plan starts in {start_year()}: year-1 target {t['bookings']} bookings."
+        return f"15-year plan starts in {start_year()}: year-1 target {t['bookings']} bookings."
     return (f"Plan year {p['year_index']}: {p['bookings']}/{t['bookings']} bookings, "
             f"{pricing.fmt_money(p['sales'])} of ₹{t['sales_cr']:,.0f} Cr sales "
             f"(on pace for {p['pace_bookings']}).")

@@ -153,8 +153,9 @@ dashboard's 15-yr plan page.</small></p>
 <tr><th>End of</th><th>Own capital only (₹7 Cr at 18–27%, nothing else)</th><th>Cautious case</th><th>Plan case</th></tr>
 {compare}
 </table>
-<p><small>"Own capital only" shows your capital, not company value: compounding ₹7 Cr alone, even at 27%, reaches
-about {cr(pick(OWN_ONLY, 2041)['own'])} by 2041. The jump comes from investor capital in project companies plus the
+<p><small>"Own capital only" shows your capital, not company value. The ₹7 Cr goes in at end-2027, so by Dec 2041 it
+has compounded for 14 years: about {cr(pick(OWN_ONLY, 2041)['own'])} at 27% (15 full years, to Dec 2042, gives about
+₹252 Cr). Even ₹252 Cr earning 27% means ~₹68 Cr profit a year, a company worth ~₹1,000 Cr. The jump comes from investor capital in project companies plus the
 sales engine. Cautious case: 18% on own capital, half the investor capital, 70% of the sales-business profit.</small></p>
 </div>
 
